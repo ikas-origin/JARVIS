@@ -17,6 +17,7 @@ from .types import Message, ModelResponse, ToolCall
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
+CheckpointCallback = Callable[[list[Message]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,23 +47,28 @@ class Agent:
         tools: ToolRegistry,
         *,
         on_event: EventCallback | None = None,
+        initial_messages: list[Message] | None = None,
+        checkpoint: CheckpointCallback | None = None,
     ) -> None:
         self.config = config
         self.client = client
         self.tools = tools
         self.on_event = on_event or (lambda _name, _data: None)
-        self.messages: list[Message] = [
+        self.checkpoint = checkpoint or (lambda _messages: None)
+        self.messages: list[Message] = initial_messages or [
             {
                 "role": "system",
                 "content": SYSTEM_PROMPT
                 + f"\nRuntime: {platform.system()} {platform.release()}; workspace: {config.workspace}",
             }
         ]
+        self._checkpoint()
 
     def run(self, task: str) -> AgentResult:
         if not task.strip():
             return AgentResult("failed", "Task must not be empty", 0, 0, "invalid_task")
         self.messages.append({"role": "user", "content": task.strip()})
+        self._checkpoint()
         tool_call_count = 0
         repeated_error: tuple[str, int] | None = None
 
@@ -75,6 +81,7 @@ class Agent:
             )
             response = self.client.complete(request_messages, self.tools.schemas)
             self.messages.append(_assistant_message(response))
+            self._checkpoint()
             if response.content.strip():
                 self.on_event("assistant_text", {"text": response.content})
             if not response.tool_calls:
@@ -100,6 +107,7 @@ class Agent:
                 self.messages.append(
                     {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": payload}
                 )
+                self._checkpoint()
                 self.on_event("tool_end", {"name": call.name, "ok": result.ok, "content": result.content})
                 if result.ok:
                     repeated_error = None
@@ -127,6 +135,9 @@ class Agent:
             "max_turns",
         )
 
+    def _checkpoint(self) -> None:
+        self.checkpoint(self.messages)
+
 
 def _assistant_message(response: ModelResponse) -> Message:
     message: Message = {"role": "assistant", "content": response.content or None}
@@ -145,4 +156,3 @@ def _assistant_message(response: ModelResponse) -> Message:
 def _truncate(value: str, limit: int) -> str:
     half = limit // 2
     return value[:half] + "\n...[tool result truncated]...\n" + value[-half:]
-

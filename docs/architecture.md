@@ -42,6 +42,8 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 
 配置优先级为环境变量、用户配置文件、内置默认值。`jarvis configure` 将凭据写入仓库外的 `~/.jarvis/config.json`，API key 使用隐藏输入且不作为命令参数。这样配置能跨终端和重启保留，同时环境变量仍可做临时覆盖。
 
+会话默认保存到 `~/.jarvis/sessions`。每次追加 user、assistant 或 tool 消息后都会原子写入 checkpoint，因此正常结束、工具失败或后续轮次异常时已有轨迹仍可恢复。`--continue` 只选择当前 workspace 的最近会话，`--resume` 也会校验会话所属 workspace，避免把其它项目历史注入当前任务。
+
 ## 上下文策略
 
 内部统一使用 `system/user/assistant/tool` 消息。工具结果必须带原始 `tool_call_id`。每次请求前先限制单个工具输出长度；仍超预算时，以完整轨迹为单位移除最旧的 assistant-tool 组合，永远保留 system 和 user 消息。如果 system 与用户消息本身已超限，则明确停止，不静默丢弃任务要求。

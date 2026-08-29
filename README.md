@@ -59,6 +59,18 @@ jarvis --workspace D:\path\to\project --yes "Add tests for the parser."
 jarvis --yes  # interactive session
 ```
 
+JARVIS saves each conversation outside the repository under
+`~/.jarvis/sessions`. Resume the newest session for the same workspace or an
+exact session ID:
+
+```powershell
+jarvis sessions
+jarvis --json sessions
+jarvis --continue --yes "Now add the missing edge-case tests."
+jarvis --resume SESSION_ID --yes "Continue the previous task."
+jarvis --no-session --yes "Run a one-off task without saving history."
+```
+
 Without `--yes`, read-only tools execute automatically, while file writes and
 commands require interactive confirmation. Commands that match JARVIS's
 high-risk denylist are refused even with `--yes`.

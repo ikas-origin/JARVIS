@@ -50,6 +50,32 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(second_messages[-1]["tool_call_id"], "write-1")
         self.assertEqual((self.config.workspace / "answer.txt").read_text(), "42")
 
+    def test_checkpoint_records_each_message_boundary(self) -> None:
+        snapshots = []
+        client = FakeClient(
+            [
+                ModelResponse(tool_calls=[ToolCall("list-1", "list_files", {})]),
+                ModelResponse(content="Done"),
+            ]
+        )
+        Agent(
+            self.config,
+            client,
+            self.registry,
+            checkpoint=lambda messages: snapshots.append([dict(message) for message in messages]),
+        ).run("Inspect files")
+        roles = [[message["role"] for message in snapshot] for snapshot in snapshots]
+        self.assertEqual(
+            roles,
+            [
+                ["system"],
+                ["system", "user"],
+                ["system", "user", "assistant"],
+                ["system", "user", "assistant", "tool"],
+                ["system", "user", "assistant", "tool", "assistant"],
+            ],
+        )
+
     def test_max_turns_stops_endless_tool_loop(self) -> None:
         config = replace(self.config, max_turns=2)
         client = FakeClient(
@@ -71,4 +97,3 @@ class AgentTests(unittest.TestCase):
         result = Agent(self.config, client, self.registry).run("Use a missing tool")
         self.assertEqual(result.stop_reason, "repeated_tool_error")
         self.assertEqual(result.tool_calls, 3)
-

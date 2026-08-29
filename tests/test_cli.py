@@ -59,3 +59,16 @@ class CliTests(unittest.TestCase):
                 payload = json.load(saved)
             self.assertEqual(payload["api_key"], "hidden-key")
             self.assertEqual(payload["model"], "demo-model")
+
+    def test_json_sessions_is_available_without_model_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {"JARVIS_CONFIG": os.path.join(directory, "config.json")},
+            clear=True,
+        ):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = main(["--workspace", directory, "--json", "sessions"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload, {"ok": True, "sessions": []})

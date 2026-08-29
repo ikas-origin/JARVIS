@@ -14,6 +14,7 @@ from .config import Config, save_user_config
 from .errors import JarvisError
 from .model_client import OpenAICompatibleClient
 from .policy import Policy
+from .session import Session, SessionStore
 from .tool_protocol import ToolRegistry
 from .tools import built_in_tools
 
@@ -24,12 +25,24 @@ def build_parser() -> argparse.ArgumentParser:
         description="A lightweight Coding Agent that edits files and runs local commands.",
     )
     parser.add_argument(
-        "items", nargs="*", metavar="TASK", help="programming task, 'doctor', or 'configure'"
+        "items",
+        nargs="*",
+        metavar="TASK",
+        help="programming task, 'doctor', 'configure', or 'sessions'",
     )
     parser.add_argument("--workspace", default=".", help="directory JARVIS may inspect and modify")
     parser.add_argument("--max-turns", type=int, default=20, help="maximum model turns (default: 20)")
     parser.add_argument("--yes", action="store_true", help="approve non-dangerous writes and commands")
     parser.add_argument("--json", action="store_true", dest="json_output", help="emit one JSON object")
+    session_group = parser.add_mutually_exclusive_group()
+    session_group.add_argument(
+        "--continue",
+        action="store_true",
+        dest="continue_session",
+        help="continue the most recent session for this workspace",
+    )
+    session_group.add_argument("--resume", metavar="SESSION_ID", help="resume one exact session")
+    parser.add_argument("--no-session", action="store_true", help="do not save conversation history")
     parser.add_argument("--version", action="version", version=f"JARVIS {__version__}")
     return parser
 
@@ -46,7 +59,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.json_output:
                 raise JarvisError("configure is interactive and cannot be combined with --json")
             return _configure(config)
+        session_store = SessionStore(config.config_path.parent / "sessions")
+        if args.items == ["sessions"]:
+            sessions = [session.summary() for session in session_store.list()]
+            _emit_sessions(sessions, args.json_output)
+            return 0
+        if args.no_session and (args.continue_session or args.resume):
+            raise JarvisError("--no-session cannot be combined with --continue or --resume")
         config.validate_for_run()
+        task = " ".join(args.items).strip()
+        if not task and args.json_output:
+            raise JarvisError("Interactive mode cannot be combined with --json; provide a task")
         client = OpenAICompatibleClient(
             api_key=config.api_key or "",
             model=config.model or "",
@@ -61,20 +84,31 @@ def main(argv: list[str] | None = None) -> int:
             ),
             Policy(config.workspace, auto_approve=args.yes, confirm=confirm),
         )
+        session = _select_session(session_store, config, args)
+        checkpoint = None
+        initial_messages = None
+        if session is not None:
+            initial_messages = session.messages or None
+
+            def save_messages(messages, *, _session=session, _store=session_store):
+                _session.messages = messages
+                _store.save(_session)
+
+            checkpoint = save_messages
         agent = Agent(
             config,
             client,
             registry,
             on_event=None if args.json_output else _human_event,
+            initial_messages=initial_messages,
+            checkpoint=checkpoint,
         )
-        task = " ".join(args.items).strip()
         if task:
             result = agent.run(task).to_dict()
+            result["session_id"] = session.id if session else None
             _emit(result, args.json_output)
             return 0 if result["ok"] else 2
-        if args.json_output:
-            raise JarvisError("Interactive mode cannot be combined with --json; provide a task")
-        return _interactive(agent)
+        return _interactive(agent, session.id if session else None)
     except JarvisError as error:
         _emit_error(error.code, str(error), args.json_output)
         return 2
@@ -83,8 +117,9 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
-def _interactive(agent: Agent) -> int:
-    print("JARVIS interactive Coding Agent. Type /exit to quit.")
+def _interactive(agent: Agent, session_id: str | None) -> int:
+    suffix = f" Session: {session_id}." if session_id else " Session saving is disabled."
+    print("JARVIS interactive Coding Agent." + suffix + " Type /exit to quit.")
     while True:
         try:
             task = input("\nYou> ").strip()
@@ -117,6 +152,19 @@ def _configure(config: Config) -> int:
     print(f"Saved JARVIS configuration to {saved_path}")
     print("The API key was stored but will never be printed by JARVIS.")
     return 0
+
+
+def _select_session(store: SessionStore, config: Config, args) -> Session | None:
+    if args.no_session:
+        return None
+    if args.resume:
+        return store.load(args.resume, workspace=config.workspace)
+    if args.continue_session:
+        session = store.latest(config.workspace)
+        if session is None:
+            raise JarvisError(f"No saved session exists for workspace: {config.workspace}")
+        return session
+    return store.create(config.workspace)
 
 
 def _confirm(action: str) -> bool:
@@ -164,6 +212,22 @@ def _emit_error(kind: str, message: str, json_output: bool) -> None:
         print(json.dumps(payload, ensure_ascii=False))
     else:
         print(f"JARVIS error ({kind}): {message}", file=sys.stderr)
+
+
+def _emit_sessions(sessions: list[dict[str, Any]], json_output: bool) -> None:
+    if json_output:
+        print(json.dumps({"ok": True, "sessions": sessions}, ensure_ascii=False))
+        return
+    if not sessions:
+        print("No saved JARVIS sessions.")
+        return
+    for session in sessions:
+        print(
+            f"{session['id']}  {session['updated_at']}  "
+            f"messages={session['message_count']}  {session['workspace']}"
+        )
+        if session["last_task"]:
+            print(f"  {session['last_task']}")
 
 
 if __name__ == "__main__":
