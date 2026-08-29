@@ -56,9 +56,9 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 - `edit_file`
 - `run_command`
 
-所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除 `JARVIS_API_KEY`。
+所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。
 
-这层策略是应用级护栏，不是操作系统沙箱。因此 README 明确要求只在允许修改的仓库中运行。
+这层策略是应用级护栏，不是操作系统沙箱。特别是 shell 命令仍可能主动访问 workspace 外的位置，因此 README 明确要求只在可信任务、允许修改的仓库中运行。
 
 ## 终止条件
 
@@ -74,4 +74,3 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 ## 错误恢复
 
 429、连接错误和部分 5xx 最多重试两次，使用指数退避和抖动。401/403 立即作为认证错误停止；其它 4xx 作为请求错误停止；畸形 JSON、缺失消息或非法 tool call 参数作为响应协议错误停止。本地工具错误会作为结构化 tool result 回填给模型，使模型有机会重新读取和修正。
-

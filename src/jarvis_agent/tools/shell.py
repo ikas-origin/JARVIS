@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -25,8 +26,7 @@ def make_run_command_tool(timeout: float, output_limit: int) -> Tool:
         requested_timeout = float(arguments.get("timeout", timeout))
         requested_timeout = min(max(requested_timeout, 1.0), 300.0)
         policy.check_command(command)
-        child_env = os.environ.copy()
-        child_env.pop("JARVIS_API_KEY", None)
+        child_env = _sanitized_environment()
         try:
             completed = subprocess.run(
                 command,
@@ -73,3 +73,13 @@ def make_run_command_tool(timeout: float, output_limit: int) -> Tool:
         run_command,
     )
 
+
+_SECRET_ENV_NAME = re.compile(
+    r"(?:^|_)(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_?KEY)(?:$|_)",
+    re.IGNORECASE,
+)
+
+
+def _sanitized_environment() -> dict[str, str]:
+    """Keep normal build variables while withholding common credential names."""
+    return {name: value for name, value in os.environ.items() if not _SECRET_ENV_NAME.search(name)}

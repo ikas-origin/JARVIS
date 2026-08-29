@@ -74,8 +74,10 @@ python -m unittest discover -s tests -v
 ## Safety boundary
 
 All file tools resolve paths against one workspace and reject paths that escape
-it, including traversal through symlinks. Command execution has a timeout,
-bounded output, workspace working directory, and a conservative dangerous
-command denylist. This is a guardrail, not an OS sandbox: run JARVIS only in a
-repository you can safely modify.
-
+it, including traversal through symlinks. Common credential files and `.git`
+metadata are not exposed to file tools. Command execution has a timeout,
+bounded output, a sanitized child environment, workspace working directory,
+and a conservative dangerous-command denylist. This is a guardrail, not an OS
+sandbox: shell commands can still access resources allowed by your operating
+system, so run JARVIS only on trusted tasks in a repository you can safely
+modify.

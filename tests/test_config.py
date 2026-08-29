@@ -35,3 +35,27 @@ class ConfigTests(unittest.TestCase):
             config = Config.from_env(workspace=directory)
             self.assertEqual(config.workspace, Path(directory).resolve())
 
+    def test_remote_base_url_requires_https(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "JARVIS_API_KEY": "key",
+                "JARVIS_MODEL": "model",
+                "JARVIS_BASE_URL": "http://models.example.test/v1",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ConfigurationError):
+                Config.from_env(workspace=directory).validate_for_run()
+
+    def test_local_http_model_server_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "JARVIS_API_KEY": "local-placeholder",
+                "JARVIS_MODEL": "local-model",
+                "JARVIS_BASE_URL": "http://127.0.0.1:11434/v1",
+            },
+            clear=True,
+        ):
+            Config.from_env(workspace=directory).validate_for_run()

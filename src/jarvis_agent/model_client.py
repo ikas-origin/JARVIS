@@ -101,7 +101,7 @@ class OpenAICompatibleClient:
                 elif 500 <= exc.code < 600:
                     last_error = ModelError(f"Model API server error: HTTP {exc.code}")
                 else:
-                    detail = _safe_error_detail(exc)
+                    detail = _safe_error_detail(exc, self.api_key)
                     raise ModelError(f"Model API rejected the request: HTTP {exc.code}{detail}") from exc
             except (error.URLError, TimeoutError) as exc:
                 last_error = ModelError(f"Model API network error: {exc.reason if hasattr(exc, 'reason') else exc}")
@@ -113,13 +113,13 @@ class OpenAICompatibleClient:
         raise last_error
 
 
-def _safe_error_detail(exc: error.HTTPError) -> str:
+def _safe_error_detail(exc: error.HTTPError, api_key: str) -> str:
     try:
         payload = json.loads(exc.read(4096).decode("utf-8", errors="replace"))
         message = payload.get("error", {}).get("message", "")
         if isinstance(message, str) and message:
-            return ": " + message[:500]
+            redacted = message.replace(api_key, "[REDACTED]") if api_key else message
+            return ": " + redacted[:500]
     except (AttributeError, json.JSONDecodeError, OSError):
         pass
     return ""
-

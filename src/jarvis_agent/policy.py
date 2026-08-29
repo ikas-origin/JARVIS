@@ -47,6 +47,8 @@ class Policy:
             candidate.relative_to(self.workspace)
         except ValueError as error:
             raise PolicyError(f"Path escapes workspace: {user_path}") from error
+        if _is_sensitive_path(candidate, self.workspace):
+            raise PolicyError(f"Access to sensitive path is refused: {user_path}")
         return candidate
 
     def require_approval(self, action: str) -> None:
@@ -63,3 +65,14 @@ class Policy:
             raise PolicyError("Command refused by the dangerous-command policy")
         self.require_approval(f"run command: {command}")
 
+
+def _is_sensitive_path(candidate: Path, workspace: Path) -> bool:
+    parts = tuple(part.lower() for part in candidate.relative_to(workspace).parts)
+    if ".git" in parts:
+        return True
+    name = candidate.name.lower()
+    if name == ".env" or name.startswith(".env.") and name != ".env.example":
+        return True
+    if name in {"id_rsa", "id_ed25519", "credentials", "credentials.json"}:
+        return True
+    return candidate.suffix.lower() in {".pem", ".p12", ".pfx", ".key"}
