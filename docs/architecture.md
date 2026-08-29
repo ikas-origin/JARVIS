@@ -46,6 +46,8 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 
 人类输出模式使用 OpenAI 兼容 SSE 流，逐段显示 assistant 文本，并按 tool-call index 拼接可能被拆分的函数名与 JSON 参数。收到 `[DONE]` 后才将完整响应写入历史。`--json` 保持非流式，确保 stdout 始终只有一个完整 JSON 对象；`--no-stream` 可为兼容性较差的网关回退到普通响应。
 
+`jarvis-gui` 是 Tkinter 编写的薄启动层。它使用参数数组和当前虚拟环境的 Python 启动 `python -m jarvis_agent`，不使用 `shell=True`，并合并读取子进程 stdout/stderr 以显示流式过程。GUI 不直接调用模型或工具，因此不会形成第二套 agent loop。可选 PowerShell 脚本可以为当前 Windows 用户注册文件夹和文件夹背景右键菜单，但程序本身不会自动修改注册表。
+
 ## 上下文策略
 
 内部统一使用 `system/user/assistant/tool` 消息。工具结果必须带原始 `tool_call_id`。每次请求前先限制单个工具输出长度；仍超预算时，以完整轨迹为单位移除最旧的 assistant-tool 组合，永远保留 system 和 user 消息。如果 system 与用户消息本身已超限，则明确停止，不静默丢弃任务要求。

@@ -157,6 +157,49 @@ You> /exit
 
 同一次交互进程会保留完整上下文。
 
+## 图形界面启动器
+
+如果不想每次输入 PowerShell 命令，可以启动轻量 GUI：
+
+```powershell
+cd D:\develop\CodeX\test20260829020730\JARVIS
+.\.venv\Scripts\jarvis-gui.exe
+```
+
+也可以在资源管理器中双击：
+
+```text
+scripts\start-jarvis-gui.cmd
+```
+
+GUI 的使用顺序：
+
+1. 点击 `Browse...` 选择需要开发的项目目录。
+2. 在 `Coding task` 中输入任务和验收要求。
+3. 可信测试项目可勾选“自动批准普通写入和命令”；不勾选时写入和命令会被拒绝，读取仍可执行。
+4. 如需沿用该项目最近的上下文，勾选“继续当前项目最近会话”。
+5. 点击 `Run JARVIS`，在下方实时查看模型和工具输出。
+6. 需要中止时点击 `Stop`。
+
+点击 `Check config` 可以运行配置诊断。GUI 不包含另一套 agent 实现，它通过参数列表启动同一个 `jarvis` CLI，因此工具、安全规则、会话和终止条件完全一致。
+
+### 可选：资源管理器右键菜单
+
+希望在文件夹上右键选择 `Open JARVIS here` 时，可手动运行：
+
+```powershell
+cd D:\develop\CodeX\test20260829020730\JARVIS
+.\scripts\install-explorer-menu.ps1
+```
+
+脚本只修改当前用户的资源管理器菜单，不需要管理员权限。卸载：
+
+```powershell
+.\scripts\install-explorer-menu.ps1 -Uninstall
+```
+
+右键菜单安装是可选操作；阅读脚本并确认路径后再运行。JARVIS 不会自动修改注册表。
+
 ## 5. 如何写好 Coding 任务
 
 任务最好同时说明目标、验收方式和禁止修改的范围。例如：

@@ -176,7 +176,10 @@ def _select_session(store: SessionStore, config: Config, args) -> Session | None
 
 
 def _confirm(action: str) -> bool:
-    answer = input(f"\nApprove {action}? [y/N] ").strip().lower()
+    try:
+        answer = input(f"\nApprove {action}? [y/N] ").strip().lower()
+    except EOFError:
+        return False
     return answer in {"y", "yes"}
 
 

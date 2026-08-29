@@ -14,7 +14,7 @@ dependencies = []
 
 [project.scripts]
 jarvis = "jarvis_agent.cli:main"
+jarvis-gui = "jarvis_agent.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
