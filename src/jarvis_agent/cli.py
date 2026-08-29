@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from getpass import getpass
 import json
 import sys
 from typing import Any
 
 from . import __version__
 from .agent import Agent
-from .config import Config
+from .config import Config, save_user_config
 from .errors import JarvisError
 from .model_client import OpenAICompatibleClient
 from .policy import Policy
@@ -22,7 +23,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="jarvis",
         description="A lightweight Coding Agent that edits files and runs local commands.",
     )
-    parser.add_argument("items", nargs="*", metavar="TASK", help="programming task, or 'doctor'")
+    parser.add_argument(
+        "items", nargs="*", metavar="TASK", help="programming task, 'doctor', or 'configure'"
+    )
     parser.add_argument("--workspace", default=".", help="directory JARVIS may inspect and modify")
     parser.add_argument("--max-turns", type=int, default=20, help="maximum model turns (default: 20)")
     parser.add_argument("--yes", action="store_true", help="approve non-dangerous writes and commands")
@@ -39,6 +42,10 @@ def main(argv: list[str] | None = None) -> int:
             result = config.doctor()
             _emit(result, args.json_output)
             return 0 if result["ok"] else 1
+        if args.items == ["configure"]:
+            if args.json_output:
+                raise JarvisError("configure is interactive and cannot be combined with --json")
+            return _configure(config)
         config.validate_for_run()
         client = OpenAICompatibleClient(
             api_key=config.api_key or "",
@@ -91,6 +98,27 @@ def _interactive(agent: Agent) -> int:
         print(f"\nJARVIS> {result.answer}")
 
 
+def _configure(config: Config) -> int:
+    print(f"JARVIS configuration file: {config.config_path}")
+    current_key_hint = " (press Enter to keep the saved key)" if config.auth_source == "config" else ""
+    api_key = getpass(f"API key{current_key_hint}: ").strip() or config.api_key or ""
+    model_default = config.model or ""
+    model_prompt = f"Model [{model_default}]: " if model_default else "Model: "
+    model = input(model_prompt).strip() or model_default
+    base_url = input(f"Base URL [{config.base_url}]: ").strip() or config.base_url
+    saved_path = save_user_config(
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        path=config.config_path,
+    )
+    # Reuse validation rules before reporting a successful configuration.
+    Config.from_env(workspace=config.workspace, config_path=saved_path).validate_for_run()
+    print(f"Saved JARVIS configuration to {saved_path}")
+    print("The API key was stored but will never be printed by JARVIS.")
+    return 0
+
+
 def _confirm(action: str) -> bool:
     answer = input(f"\nApprove {action}? [y/N] ").strip().lower()
     return answer in {"y", "yes"}
@@ -120,7 +148,12 @@ def _emit(payload: dict[str, Any], json_output: bool) -> None:
         print("JARVIS configuration")
         for key in ("model", "base_url", "workspace"):
             print(f"  {key}: {payload[key] or '(missing)'}")
-        print(f"  api key: {'available via environment' if payload['auth']['available'] else 'missing'}")
+        key_status = (
+            f"available via {payload['auth']['source']}" if payload["auth"]["available"] else "missing"
+        )
+        print(f"  api key: {key_status}")
+        print(f"  auth source: {payload['auth']['source']}")
+        print(f"  config file: {payload['config_path']}")
         if payload["missing"]:
             print("  missing: " + ", ".join(payload["missing"]))
 
@@ -135,4 +168,3 @@ def _emit_error(kind: str, message: str, json_output: bool) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

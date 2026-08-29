@@ -38,6 +38,17 @@ $env:JARVIS_BASE_URL = "https://api.openai.com/v1"
 Never commit API keys. JARVIS does not accept a key as a CLI argument, so it
 cannot accidentally leak through shell history or process listings.
 
+For a persistent setup that survives terminal restarts, run:
+
+```powershell
+jarvis configure
+```
+
+The command hides key input and stores the settings in
+`~/.jarvis/config.json`, outside the Git repository. Environment variables
+still take precedence, so they can temporarily override saved settings. Set
+`JARVIS_CONFIG` only when you intentionally want a different config-file path.
+
 ## Usage
 
 ```powershell
