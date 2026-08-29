@@ -1,14 +1,16 @@
 import io
 import json
 import os
+from pathlib import Path
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from jarvis_agent.cli import _git_branch, _handle_interactive_command, main
+from jarvis_agent.cli import _git_branch, _handle_interactive_command, _interactive, main
 from jarvis_agent.config import Config
 from jarvis_agent.session import SessionStore
+from jarvis_agent.spec import SpecStore
 
 
 class CliTests(unittest.TestCase):
@@ -103,3 +105,50 @@ class CliTests(unittest.TestCase):
         self.assertFalse(should_exit)
         self.assertEqual(len(agent.messages), 1)
         self.assertIn("context cleared", output.getvalue())
+
+    def test_spec_help_is_available_inside_interactive_commands(self) -> None:
+        class FakeAgent:
+            def __init__(self, workspace: str) -> None:
+                self.config = Config.from_env(workspace=workspace)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                should_exit = _handle_interactive_command(
+                    "/spec help",
+                    FakeAgent(directory),  # type: ignore[arg-type]
+                    None,
+                    SessionStore(Path(directory) / "sessions"),
+                    auto_approve=False,
+                    streaming=True,
+                )
+        self.assertFalse(should_exit)
+        self.assertIn("/spec implement", output.getvalue())
+
+    def test_active_spec_blocks_free_form_interactive_task(self) -> None:
+        class FakeAgent:
+            def __init__(self, workspace: str) -> None:
+                self.config = Config.from_env(workspace=workspace)
+                self.messages = [{"role": "system", "content": "system"}]
+                self.run_count = 0
+
+            def run(self, _task: str):
+                self.run_count += 1
+                raise AssertionError("free-form task must not run while a spec is active")
+
+        with tempfile.TemporaryDirectory() as directory:
+            SpecStore(Path(directory)).create("active", "Build a feature")
+            agent = FakeAgent(directory)
+            output = io.StringIO()
+            with patch("builtins.input", side_effect=["change arbitrary code", "/exit"]), redirect_stdout(output):
+                exit_code = _interactive(
+                    agent,  # type: ignore[arg-type]
+                    None,
+                    SessionStore(Path(directory) / "sessions"),
+                    None,
+                    auto_approve=False,
+                    streaming=True,
+                )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(agent.run_count, 0)
+        self.assertIn("Spec 'active' is active", output.getvalue())

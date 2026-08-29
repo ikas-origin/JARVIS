@@ -136,6 +136,7 @@ you> 阅读项目，定位失败的测试，修复问题并重新运行测试。
 | `/status` | 显示 workspace、模型、Git、session 和上下文状态 |
 | `/sessions` | 列出已保存会话 |
 | `/clear` | 清空当前对话上下文，不修改项目文件 |
+| `/spec` | 查看或管理 Spec 驱动开发流程 |
 | `/exit` | 退出 JARVIS |
 
 默认会在写文件和执行命令前询问。可信测试项目可用 `jarvis --yes` 启动，自动批准普通操作；危险命令仍会被拒绝。
@@ -158,6 +159,83 @@ D:\develop\CodeX\test20260829020730\JARVIS\.venv\Scripts\jarvis.exe `
   --yes `
   "检查项目并修复失败的测试，完成后报告修改和验证结果。"
 ```
+
+## Spec 驱动开发模式
+
+复杂功能建议先写 Spec，再允许 Agent 修改业务代码。JARVIS 使用下面的确定性状态机：
+
+```text
+requirements -> design -> tasks -> implementing -> verifying -> completed
+```
+
+在目标项目中启动交互终端：
+
+```powershell
+jarvis --yes
+```
+
+创建 Spec。名称只能包含小写字母、数字和连字符，名称后面是完整目标：
+
+```text
+you> /spec new health-consultation 实现健康知识咨询原型，包含风险分流、RAG、会话历史和自动测试
+```
+
+JARVIS 会先读取项目并创建：
+
+```text
+.jarvis/specs/health-consultation/
+├── requirements.md
+├── design.md
+├── tasks.md
+├── verification.md
+└── state.json
+```
+
+推荐流程：
+
+```text
+/spec show requirements
+/spec revise 增加明确的非目标，并要求所有验收标准具有稳定 ID
+/spec approve
+
+/spec show design
+/spec approve
+
+/spec show tasks
+/spec approve
+
+/spec implement
+/spec implement
+/spec status
+/spec verify
+```
+
+每次 `/spec implement` 只执行 `tasks.md` 中下一个未完成任务。Agent 必须运行该任务对应的验证，成功后才能把 `[ ]` 更新为 `[x]`。所有任务完成后进入最终验证，并生成需求追踪与测试证据。
+
+常用命令：
+
+| 命令 | 作用 |
+|---|---|
+| `/spec new NAME GOAL` | 创建 Spec 并生成 requirements |
+| `/spec status` | 查看当前阶段、产物和下一个任务 |
+| `/spec list` | 查看当前 workspace 的全部 Spec |
+| `/spec show ARTIFACT` | 显示 requirements、design、tasks 或 verification |
+| `/spec generate` | 当前阶段产物生成失败时重试 |
+| `/spec revise FEEDBACK` | 根据反馈修订当前规划产物 |
+| `/spec approve` | 批准当前产物并进入下一阶段 |
+| `/spec implement` | 实现并验证下一个任务 |
+| `/spec verify` | 执行最终验收并生成 verification.md |
+| `/spec cancel` | 终止流程但保留全部产物 |
+
+审批门不是单纯提示词：
+
+- requirements、design、tasks 阶段禁止运行命令，只允许写当前待审查的 Spec 文件。
+- 已批准的 requirements、design 和内部 `state.json` 在实施阶段受到工具策略保护。
+- tasks 未批准前，模型不能修改项目业务代码。
+- Spec 活跃期间拒绝游离于流程之外的普通任务输入，避免实现偏离已批准文档。
+- 最终验证只有写出精确的 `Status: PASS` 才会完成；失败会回到 implementing 并新增 `TV` 修复任务。
+
+Spec 状态保存在项目内，不依赖某个终端进程或对话 session。`.jarvis/specs/` 可以提交到 Git，作为需求、设计、任务和验证证据。简单改字或小型 bug 不必使用 Spec，直接使用普通模式即可。
 
 ## 可选实验性图形启动器
 

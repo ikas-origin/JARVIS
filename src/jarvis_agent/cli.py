@@ -17,6 +17,16 @@ from .errors import JarvisError
 from .model_client import OpenAICompatibleClient
 from .policy import Policy
 from .session import Session, SessionStore
+from .spec import (
+    ARTIFACTS,
+    PLANNING_PHASES,
+    SpecState,
+    SpecStore,
+    implement_prompt,
+    phase_prompt,
+    revise_prompt,
+    verify_prompt,
+)
 from .tool_protocol import ToolRegistry
 from .tools import built_in_tools
 
@@ -25,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jarvis",
         description="A lightweight Coding Agent that edits files and runs local commands.",
+        epilog=(
+            "Run without TASK for the interactive Coding Agent. Inside it, use '/spec help' "
+            "for the reviewed Spec -> Design -> Tasks -> Implement workflow."
+        ),
     )
     parser.add_argument(
         "items",
@@ -154,11 +168,19 @@ def _interactive(
                 agent,
                 session,
                 store,
+                display,
                 auto_approve=auto_approve,
                 streaming=streaming,
             )
             if should_exit:
                 return 0
+            continue
+        active_spec = SpecStore(agent.config.workspace).active()
+        if active_spec is not None:
+            print(
+                f"Spec '{active_spec.name}' is active in phase '{active_spec.phase}'. "
+                "Use /spec status and the phase-specific /spec command instead of a free-form task."
+            )
             continue
         result = agent.run(task)
         if display:
@@ -184,6 +206,7 @@ def _handle_interactive_command(
     agent: Agent,
     session: Session | None,
     store: SessionStore,
+    display: "HumanDisplay | None" = None,
     *,
     auto_approve: bool,
     streaming: bool,
@@ -197,6 +220,7 @@ def _handle_interactive_command(
             "  /status    show workspace, model, session, and context state\n"
             "  /sessions  list saved sessions\n"
             "  /clear     clear conversation context for this session\n"
+            "  /spec      manage a reviewed Spec -> Design -> Tasks -> Implement workflow\n"
             "  /exit      leave JARVIS (also /quit)"
         )
         return False
@@ -216,8 +240,236 @@ def _handle_interactive_command(
         agent.reset_context()
         print("Conversation context cleared. Workspace files were not changed.")
         return False
+    if command == "/spec" or command.startswith("/spec "):
+        _handle_spec_command(raw, agent, session, display)
+        return False
     print(f"Unknown command: {raw}. Type /help to see available commands.")
     return False
+
+
+def _handle_spec_command(
+    raw: str,
+    agent: Agent,
+    session: Session | None,
+    display: "HumanDisplay | None",
+) -> None:
+    store = SpecStore(agent.config.workspace)
+    parts = raw.strip().split(maxsplit=3)
+    action = parts[1].lower() if len(parts) > 1 else "status"
+    try:
+        if action == "help":
+            _print_spec_help()
+            return
+        if action == "list":
+            _print_spec_list(store)
+            return
+        if action == "new":
+            if len(parts) < 4:
+                raise JarvisError("Usage: /spec new <name> <goal>")
+            state = store.create(parts[2], parts[3])
+            print(f"Created spec '{state.name}' at .jarvis/specs/{state.name}")
+            _run_spec_agent(agent, session, display, state, phase_prompt(state, "requirements"), "planning")
+            _report_artifact(store, state, "requirements")
+            return
+
+        state = store.active()
+        if state is None:
+            if action == "status":
+                print("No active spec. Use /spec new <name> <goal> or /spec list.")
+                return
+            raise JarvisError("No active spec. Use /spec new <name> <goal> first.")
+        if action == "status":
+            _print_spec_status(store, state)
+        elif action == "show":
+            if len(parts) < 3:
+                raise JarvisError("Usage: /spec show requirements|design|tasks|verification")
+            print(store.read_artifact(state, parts[2].lower()))
+        elif action == "generate":
+            if state.phase not in PLANNING_PHASES:
+                raise JarvisError(f"Nothing can be generated during phase: {state.phase}")
+            _run_spec_agent(
+                agent,
+                session,
+                display,
+                state,
+                phase_prompt(state, state.phase),
+                "planning",
+            )
+            _report_artifact(store, state, state.phase)
+        elif action == "revise":
+            feedback = raw.strip().split(maxsplit=2)[2] if len(raw.strip().split(maxsplit=2)) > 2 else ""
+            if not feedback:
+                raise JarvisError("Usage: /spec revise <feedback>")
+            _run_spec_agent(
+                agent,
+                session,
+                display,
+                state,
+                revise_prompt(state, feedback),
+                "planning",
+            )
+            _report_artifact(store, state, state.phase)
+        elif action == "approve":
+            next_phase = store.approve(state)
+            print(f"Approved {state.approvals[-1]}; spec phase is now {next_phase}.")
+            if next_phase in {"design", "tasks"}:
+                _run_spec_agent(
+                    agent,
+                    session,
+                    display,
+                    state,
+                    phase_prompt(state, next_phase),
+                    "planning",
+                )
+                _report_artifact(store, state, next_phase)
+            else:
+                print("Planning gates passed. Use /spec implement to execute the next task.")
+        elif action == "implement":
+            _implement_next_spec_task(store, state, agent, session, display)
+        elif action == "verify":
+            _verify_spec(store, state, agent, session, display)
+        elif action == "cancel":
+            store.set_phase(state, "cancelled")
+            print(f"Cancelled spec '{state.name}'. Its artifacts were preserved.")
+        else:
+            _print_spec_help()
+    except JarvisError as error:
+        print(f"Spec error: {error}")
+
+
+def _run_spec_agent(
+    agent: Agent,
+    session: Session | None,
+    display: "HumanDisplay | None",
+    state: SpecState,
+    prompt: str,
+    mode: str,
+) -> None:
+    policy = agent.tools.policy
+    spec_store = SpecStore(agent.config.workspace)
+    spec_directory = spec_store.directory(state.name)
+    if mode == "planning":
+        artifact = spec_store.artifact_path(state, state.phase)
+        policy.restrict(write_roots=(artifact,), commands_allowed=False)
+    elif mode == "verifying":
+        artifact = spec_store.artifact_path(state, "verification")
+        policy.restrict(write_roots=(artifact,), commands_allowed=True)
+    else:
+        policy.restrict(
+            write_roots=None,
+            commands_allowed=True,
+            denied_write_paths=(
+                spec_store.artifact_path(state, "requirements"),
+                spec_store.artifact_path(state, "design"),
+                spec_store.artifact_path(state, "verification"),
+                spec_directory / "state.json",
+            ),
+        )
+    try:
+        result = agent.run(prompt)
+    finally:
+        policy.clear_restrictions()
+    if display:
+        display.finish_line()
+    payload = result.to_dict()
+    payload["session_id"] = session.id if session else None
+    _emit(payload, False, suppress_answer=bool(display and display.consume_streamed()))
+
+
+def _implement_next_spec_task(
+    store: SpecStore,
+    state: SpecState,
+    agent: Agent,
+    session: Session | None,
+    display: "HumanDisplay | None",
+) -> None:
+    if state.phase != "implementing":
+        raise JarvisError(f"Spec must be in implementing phase, currently: {state.phase}")
+    task = store.next_task(state)
+    if task is None:
+        if store.all_tasks_complete(state):
+            store.set_phase(state, "verifying")
+            print("All tasks are checked. Use /spec verify.")
+            return
+        raise JarvisError("tasks.md contains no recognizable '- [ ]' tasks")
+    print(f"Implementing next task: {task}")
+    _run_spec_agent(agent, session, display, state, implement_prompt(state, task), "implementing")
+    if store.all_tasks_complete(state):
+        store.set_phase(state, "verifying")
+        print("All tasks are complete. Use /spec verify for final traceability and tests.")
+    elif store.next_task(state) == task:
+        print("The task remains unchecked because successful verification was not recorded.")
+    else:
+        print("Task completed. Use /spec implement for the next task.")
+
+
+def _verify_spec(
+    store: SpecStore,
+    state: SpecState,
+    agent: Agent,
+    session: Session | None,
+    display: "HumanDisplay | None",
+) -> None:
+    if state.phase != "verifying":
+        raise JarvisError(f"Spec must be in verifying phase, currently: {state.phase}")
+    if not store.all_tasks_complete(state):
+        raise JarvisError("All tasks must be checked before final verification")
+    _run_spec_agent(agent, session, display, state, verify_prompt(state), "verifying")
+    if store.verification_passed(state):
+        store.set_phase(state, "completed")
+        print(f"Spec '{state.name}' completed with verification status PASS.")
+    else:
+        remediation = store.add_verification_fix_task(state)
+        store.set_phase(state, "implementing")
+        print(
+            "Verification did not pass. Returned to implementing with remediation task: "
+            + remediation
+        )
+
+
+def _report_artifact(store: SpecStore, state: SpecState, kind: str) -> None:
+    path = store.artifact_path(state, kind)
+    if path.is_file():
+        print(f"Review {path.relative_to(store.workspace)} then use /spec approve or /spec revise.")
+    else:
+        print(f"Artifact {kind} was not created. Use /spec generate to retry.")
+
+
+def _print_spec_status(store: SpecStore, state: SpecState) -> None:
+    print(f"spec       {state.name}")
+    print(f"phase      {state.phase}")
+    print(f"goal       {state.goal}")
+    print(f"approvals  {', '.join(state.approvals) or '(none)'}")
+    for kind, filename in ARTIFACTS.items():
+        exists = (store.directory(state.name) / filename).is_file()
+        print(f"{kind:<12}{'ready' if exists else 'missing'}")
+    if state.phase == "implementing":
+        print(f"next task  {store.next_task(state) or '(none)'}")
+
+
+def _print_spec_list(store: SpecStore) -> None:
+    states = store.list()
+    if not states:
+        print("No JARVIS specs in this workspace.")
+        return
+    for state in states:
+        print(f"{state.name:<24} {state.phase:<13} {state.updated_at}")
+
+
+def _print_spec_help() -> None:
+    print(
+        "Spec commands:\n"
+        "  /spec new <name> <goal>  create a spec and draft requirements\n"
+        "  /spec status             show active phase and artifacts\n"
+        "  /spec list               list workspace specs\n"
+        "  /spec show <artifact>    print requirements, design, tasks, or verification\n"
+        "  /spec generate           retry the current planning artifact\n"
+        "  /spec revise <feedback>  revise the current planning artifact\n"
+        "  /spec approve            approve requirements/design/tasks and advance\n"
+        "  /spec implement          implement and verify the next unchecked task\n"
+        "  /spec verify             run final verification and traceability\n"
+        "  /spec cancel             stop the workflow but preserve artifacts"
+    )
 
 
 def _git_branch(workspace: Path) -> str | None:

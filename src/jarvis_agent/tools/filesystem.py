@@ -49,10 +49,14 @@ def list_files(arguments: dict[str, Any], policy: Policy) -> ToolResult:
         if any(part in ignored for part in path.relative_to(root).parts):
             continue
         if path.is_file():
+            try:
+                safe_path = policy.resolve_path(str(path))
+            except PolicyError:
+                continue
             if len(files) >= limit:
                 truncated = True
                 break
-            files.append(_relative(path, policy))
+            files.append(_relative(safe_path, policy))
     return ToolResult(True, "\n".join(files), {"count": len(files), "truncated": truncated})
 
 
@@ -108,6 +112,7 @@ def search_text(arguments: dict[str, Any], policy: Policy) -> ToolResult:
 
 def write_file(arguments: dict[str, Any], policy: Policy) -> ToolResult:
     path = policy.resolve_path(arguments["path"])
+    policy.check_write_path(path)
     policy.require_approval(f"write file: {_relative(path, policy)}")
     path.parent.mkdir(parents=True, exist_ok=True)
     content = arguments["content"]
@@ -117,6 +122,7 @@ def write_file(arguments: dict[str, Any], policy: Policy) -> ToolResult:
 
 def edit_file(arguments: dict[str, Any], policy: Policy) -> ToolResult:
     path = policy.resolve_path(arguments["path"])
+    policy.check_write_path(path)
     if not path.is_file():
         raise ToolError(f"File does not exist: {arguments['path']}")
     old_text = arguments["old_text"]

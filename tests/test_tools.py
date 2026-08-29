@@ -45,6 +45,18 @@ class ToolTests(unittest.TestCase):
         self.assertFalse(git_result.ok)
         self.assertEqual(env_result.metadata["error_type"], "policy_error")
 
+    def test_internal_spec_state_is_hidden_from_model_tools(self) -> None:
+        state = self.root / ".jarvis" / "specs" / "demo" / "state.json"
+        state.parent.mkdir(parents=True)
+        state.write_text('{"phase":"requirements"}', encoding="utf-8")
+        read = self.registry.execute(
+            "read_file", {"path": ".jarvis/specs/demo/state.json"}
+        )
+        listed = self.registry.execute("list_files", {})
+        self.assertFalse(read.ok)
+        self.assertEqual(read.metadata["error_type"], "policy_error")
+        self.assertNotIn("state.json", listed.content)
+
     def test_edit_requires_unique_match(self) -> None:
         (self.root / "same.txt").write_text("same same", encoding="utf-8")
         result = self.registry.execute(
@@ -110,3 +122,47 @@ class ToolTests(unittest.TestCase):
         result = self.registry.execute("run_command", {"command": "git reset --hard"})
         self.assertFalse(result.ok)
         self.assertEqual(result.metadata["error_type"], "policy_error")
+
+    def test_spec_planning_restricts_writes_and_commands(self) -> None:
+        spec_root = self.root / ".jarvis" / "specs" / "demo"
+        self.registry.policy.restrict(write_roots=(spec_root,), commands_allowed=False)
+        allowed = self.registry.execute(
+            "write_file",
+            {"path": ".jarvis/specs/demo/requirements.md", "content": "# Requirements\n"},
+        )
+        blocked_write = self.registry.execute(
+            "write_file", {"path": "src/application.py", "content": "unsafe = True\n"}
+        )
+        blocked_command = self.registry.execute("run_command", {"command": "python --version"})
+        self.assertTrue(allowed.ok, allowed.content)
+        self.assertFalse(blocked_write.ok)
+        self.assertEqual(blocked_write.metadata["error_type"], "policy_error")
+        self.assertFalse(blocked_command.ok)
+        self.assertEqual(blocked_command.metadata["error_type"], "policy_error")
+
+        self.registry.policy.clear_restrictions()
+        unrestricted = self.registry.execute(
+            "write_file", {"path": "src/application.py", "content": "safe = True\n"}
+        )
+        self.assertTrue(unrestricted.ok, unrestricted.content)
+
+    def test_spec_implementation_protects_approved_artifacts(self) -> None:
+        requirements = self.root / ".jarvis" / "specs" / "demo" / "requirements.md"
+        requirements.parent.mkdir(parents=True)
+        requirements.write_text("approved\n", encoding="utf-8")
+        self.registry.policy.restrict(
+            write_roots=None,
+            commands_allowed=True,
+            denied_write_paths=(requirements,),
+        )
+        protected = self.registry.execute(
+            "edit_file",
+            {"path": ".jarvis/specs/demo/requirements.md", "old_text": "approved", "new_text": "changed"},
+        )
+        application = self.registry.execute(
+            "write_file", {"path": "src/feature.py", "content": "enabled = True\n"}
+        )
+        self.assertFalse(protected.ok)
+        self.assertEqual(protected.metadata["error_type"], "policy_error")
+        self.assertEqual(requirements.read_text(encoding="utf-8"), "approved\n")
+        self.assertTrue(application.ok, application.content)

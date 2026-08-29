@@ -35,6 +35,7 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 - `agent.py`：唯一 agent loop、轮次与工具次数、重复错误终止。
 - `model_client.py`：普通 HTTP 模型请求、有限重试、响应解析；不包含 agent 决策。
 - `context.py`：确定性裁剪历史，保证 assistant tool call 与 tool result 不被拆散。
+- `spec.py`：项目内 Spec 产物、阶段状态机、任务解析和阶段提示词。
 - `tool_protocol.py`：工具 schema、注册表、参数验证和异常边界。
 - `tools/`：工作区文件操作与本地命令执行。
 - `policy.py`：路径隔离、写操作确认和危险命令拒绝。
@@ -49,6 +50,31 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 终端是 JARVIS 的主交互层。无位置参数的 `jarvis` 启动项目内 REPL，显示 workspace、模型、Git 分支、session 和审批策略，并提供 `/help`、`/status`、`/sessions`、`/clear`、`/exit`。带任务参数时走同一个 agent loop 做一次性执行；`--json` 提供稳定的自动化接口。这三种入口只改变输入输出，不复制核心逻辑。
 
 `jarvis-gui` 是早期 Tkinter 实验性薄启动层，保留用于目录选择和一次性任务启动，但不是项目主界面。它使用参数数组和当前虚拟环境的 Python 启动 `python -m jarvis_agent`，不使用 `shell=True`。GUI 不直接调用模型或工具，因此不会形成第二套 agent loop。可选 PowerShell 脚本可以为当前 Windows 用户注册文件夹和文件夹背景右键菜单，但程序本身不会自动修改注册表。
+
+## Spec 驱动状态机
+
+复杂任务可以通过 `/spec new <name> <goal>` 进入项目级 Spec 流程：
+
+```text
+requirements --approve--> design --approve--> tasks --approve--> implementing
+                                                                    |
+                                                              tasks 全部完成
+                                                                    v
+                                                               verifying
+                                                          PASS /       \ FAIL
+                                                   completed            implementing + TV 修复任务
+```
+
+每个 Spec 位于 `.jarvis/specs/<name>/`，包含 `requirements.md`、`design.md`、`tasks.md`、`verification.md` 和原子写入的 `state.json`。状态不依赖聊天历史，因此进程退出后仍可恢复。当前只允许一个未结束 Spec，完成或取消的 Spec 会保留供审计。
+
+阶段约束由 `Policy` 强制执行，而不是依靠模型自律：
+
+- 规划阶段只允许写当前产物的精确路径，并禁用 `run_command`。
+- 实施阶段允许业务代码和 `tasks.md` 更新，但保护已批准的 requirements、design、verification 与 `state.json`。
+- 验证阶段允许执行测试，但只允许写 `verification.md`。
+- 自由文本任务在存在活跃 Spec 时被拒绝，必须通过 `/spec revise`、`/spec approve`、`/spec implement` 或 `/spec verify` 推进。
+
+`tasks.md` 使用标准 Markdown 复选框。JARVIS 每次只选取第一个 `- [ ]` 任务；只有模型完成验证并将其更新为 `[x]` 后才推进。最终验证要求 `verification.md` 包含独立一行 `Status: PASS`。失败时确定性地增加 `TV<n>` 修复任务并回到实施阶段，避免流程卡死或静默完成。
 
 ## 上下文策略
 

@@ -37,6 +37,9 @@ class Policy:
         self.workspace = workspace.resolve()
         self.auto_approve = auto_approve
         self.confirm = confirm
+        self.write_roots: tuple[Path, ...] | None = None
+        self.denied_write_paths: tuple[Path, ...] = ()
+        self.commands_allowed = True
 
     def resolve_path(self, user_path: str) -> Path:
         if not isinstance(user_path, str) or not user_path.strip():
@@ -58,12 +61,65 @@ class Policy:
             return
         raise PolicyError(f"Approval denied for: {action}")
 
+    def restrict(
+        self,
+        *,
+        write_roots: tuple[Path, ...] | None,
+        commands_allowed: bool,
+        denied_write_paths: tuple[Path, ...] = (),
+    ) -> None:
+        """Temporarily narrow mutating tools for a structured workflow phase."""
+        resolved: list[Path] = []
+        for root in write_roots or ():
+            candidate = root.resolve(strict=False)
+            try:
+                candidate.relative_to(self.workspace)
+            except ValueError as error:
+                raise PolicyError(f"Restricted write root escapes workspace: {root}") from error
+            resolved.append(candidate)
+        denied: list[Path] = []
+        for path in denied_write_paths:
+            candidate = path.resolve(strict=False)
+            try:
+                candidate.relative_to(self.workspace)
+            except ValueError as error:
+                raise PolicyError(f"Denied write path escapes workspace: {path}") from error
+            denied.append(candidate)
+        self.write_roots = tuple(resolved) if write_roots is not None else None
+        self.denied_write_paths = tuple(denied)
+        self.commands_allowed = commands_allowed
+
+    def clear_restrictions(self) -> None:
+        self.write_roots = None
+        self.denied_write_paths = ()
+        self.commands_allowed = True
+
+    def check_write_path(self, path: Path) -> None:
+        if any(path == denied for denied in self.denied_write_paths):
+            raise PolicyError(f"Current workflow phase protects this artifact: {path.name}")
+        if self.write_roots is None:
+            return
+        if any(_is_within(path, root) for root in self.write_roots):
+            return
+        allowed = ", ".join(str(root.relative_to(self.workspace)) for root in self.write_roots)
+        raise PolicyError(f"Current workflow phase only permits writes under: {allowed}")
+
     def check_command(self, command: str) -> None:
         if not isinstance(command, str) or not command.strip():
             raise PolicyError("command must be a non-empty string")
+        if not self.commands_allowed:
+            raise PolicyError("Commands are disabled during the current workflow phase")
         if any(pattern.search(command) for pattern in _DANGEROUS_COMMANDS):
             raise PolicyError("Command refused by the dangerous-command policy")
         self.require_approval(f"run command: {command}")
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def _is_sensitive_path(candidate: Path, workspace: Path) -> bool:
@@ -71,6 +127,8 @@ def _is_sensitive_path(candidate: Path, workspace: Path) -> bool:
     if ".git" in parts:
         return True
     name = candidate.name.lower()
+    if len(parts) >= 4 and parts[0:2] == (".jarvis", "specs") and name == "state.json":
+        return True
     if name == ".env" or name.startswith(".env.") and name != ".env.example":
         return True
     if name in {"id_rsa", "id_ed25519", "credentials", "credentials.json"}:
