@@ -1,0 +1,73 @@
+import os
+from pathlib import Path
+import tempfile
+import unittest
+
+from jarvis_agent.policy import Policy
+from jarvis_agent.tool_protocol import ToolRegistry
+from jarvis_agent.tools import built_in_tools
+
+
+class ToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name).resolve()
+        self.registry = ToolRegistry(
+            built_in_tools(command_timeout=2, output_limit=1000),
+            Policy(self.root, auto_approve=True),
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_write_read_and_edit_file(self) -> None:
+        written = self.registry.execute("write_file", {"path": "src/hello.py", "content": "x = 1\n"})
+        self.assertTrue(written.ok)
+        read = self.registry.execute("read_file", {"path": "src/hello.py"})
+        self.assertTrue(read.ok)
+        self.assertIn("1 | x = 1", read.content)
+        edited = self.registry.execute(
+            "edit_file", {"path": "src/hello.py", "old_text": "x = 1", "new_text": "x = 2"}
+        )
+        self.assertTrue(edited.ok)
+        self.assertEqual((self.root / "src/hello.py").read_text(), "x = 2\n")
+
+    def test_path_traversal_is_rejected(self) -> None:
+        result = self.registry.execute("read_file", {"path": "../secret.txt"})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.metadata["error_type"], "policy_error")
+
+    def test_edit_requires_unique_match(self) -> None:
+        (self.root / "same.txt").write_text("same same", encoding="utf-8")
+        result = self.registry.execute(
+            "edit_file", {"path": "same.txt", "old_text": "same", "new_text": "new"}
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("2 matches", result.content)
+
+    def test_unknown_and_invalid_tool_calls_are_errors(self) -> None:
+        self.assertFalse(self.registry.execute("missing", {}).ok)
+        result = self.registry.execute("read_file", {"path": "x", "extra": True})
+        self.assertFalse(result.ok)
+        self.assertIn("Unexpected argument", result.content)
+
+    def test_command_runs_in_workspace_and_strips_key(self) -> None:
+        old = os.environ.get("JARVIS_API_KEY")
+        os.environ["JARVIS_API_KEY"] = "must-not-leak"
+        try:
+            command = 'python -c "import os; print(os.getcwd()); print(os.getenv(\'JARVIS_API_KEY\'))"'
+            result = self.registry.execute("run_command", {"command": command})
+        finally:
+            if old is None:
+                os.environ.pop("JARVIS_API_KEY", None)
+            else:
+                os.environ["JARVIS_API_KEY"] = old
+        self.assertTrue(result.ok, result.content)
+        self.assertIn(str(self.root), result.content)
+        self.assertNotIn("must-not-leak", result.content)
+
+    def test_dangerous_command_is_refused_even_when_auto_approved(self) -> None:
+        result = self.registry.execute("run_command", {"command": "git reset --hard"})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.metadata["error_type"], "policy_error")
+

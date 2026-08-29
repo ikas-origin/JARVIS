@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-coding-agent"
+version = "0.1.0"
+description = "A lightweight Coding Agent with a self-contained agent loop"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ikas-origin" }]
+dependencies = []
+
+[project.scripts]
+jarvis = "jarvis_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
