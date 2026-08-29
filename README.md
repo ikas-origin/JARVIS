@@ -71,6 +71,11 @@ jarvis --resume SESSION_ID --yes "Continue the previous task."
 jarvis --no-session --yes "Run a one-off task without saving history."
 ```
 
+Human-readable mode streams assistant text as it arrives while continuing to
+show tool start/result events. Use `--no-stream` when debugging a provider that
+does not implement OpenAI-compatible SSE correctly. `--json` is deliberately
+non-streaming so stdout remains exactly one JSON object.
+
 Without `--yes`, read-only tools execute automatically, while file writes and
 commands require interactive confirmation. Commands that match JARVIS's
 high-risk denylist are refused even with `--yes`.

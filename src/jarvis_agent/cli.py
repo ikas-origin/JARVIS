@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     session_group.add_argument("--resume", metavar="SESSION_ID", help="resume one exact session")
     parser.add_argument("--no-session", action="store_true", help="do not save conversation history")
+    parser.add_argument("--no-stream", action="store_true", help="wait for each complete model response")
     parser.add_argument("--version", action="version", version=f"JARVIS {__version__}")
     return parser
 
@@ -95,20 +96,24 @@ def main(argv: list[str] | None = None) -> int:
                 _store.save(_session)
 
             checkpoint = save_messages
+        display = None if args.json_output else HumanDisplay()
         agent = Agent(
             config,
             client,
             registry,
-            on_event=None if args.json_output else _human_event,
+            on_event=display,
             initial_messages=initial_messages,
             checkpoint=checkpoint,
+            stream=not args.json_output and not args.no_stream,
         )
         if task:
             result = agent.run(task).to_dict()
             result["session_id"] = session.id if session else None
-            _emit(result, args.json_output)
+            if display:
+                display.finish_line()
+            _emit(result, args.json_output, suppress_answer=bool(display and display.consume_streamed()))
             return 0 if result["ok"] else 2
-        return _interactive(agent, session.id if session else None)
+        return _interactive(agent, session.id if session else None, display)
     except JarvisError as error:
         _emit_error(error.code, str(error), args.json_output)
         return 2
@@ -117,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
-def _interactive(agent: Agent, session_id: str | None) -> int:
+def _interactive(agent: Agent, session_id: str | None, display: "HumanDisplay | None") -> int:
     suffix = f" Session: {session_id}." if session_id else " Session saving is disabled."
     print("JARVIS interactive Coding Agent." + suffix + " Type /exit to quit.")
     while True:
@@ -130,7 +135,10 @@ def _interactive(agent: Agent, session_id: str | None) -> int:
         if not task:
             continue
         result = agent.run(task)
-        print(f"\nJARVIS> {result.answer}")
+        if display:
+            display.finish_line()
+        if not display or not display.consume_streamed():
+            print(f"\nJARVIS> {result.answer}")
 
 
 def _configure(config: Config) -> int:
@@ -172,22 +180,46 @@ def _confirm(action: str) -> bool:
     return answer in {"y", "yes"}
 
 
-def _human_event(name: str, data: dict[str, Any]) -> None:
-    if name == "model_request":
-        print(f"[turn {data['turn']}] Thinking...", file=sys.stderr)
-    elif name == "tool_start":
-        print(f"-> {data['name']} {json.dumps(data['arguments'], ensure_ascii=False)}", file=sys.stderr)
-    elif name == "tool_end":
-        marker = "ok" if data["ok"] else "error"
-        preview = str(data["content"]).replace("\n", " ")[:180]
-        print(f"<- {data['name']} [{marker}] {preview}", file=sys.stderr)
+class HumanDisplay:
+    def __init__(self) -> None:
+        self.line_open = False
+        self.streamed = False
+
+    def __call__(self, name: str, data: dict[str, Any]) -> None:
+        if name == "assistant_delta":
+            if not self.line_open:
+                print("JARVIS> ", end="", flush=True)
+                self.line_open = True
+            print(data["text"], end="", flush=True)
+            self.streamed = True
+        elif name == "model_request":
+            self.finish_line()
+            print(f"[turn {data['turn']}] Thinking...", file=sys.stderr)
+        elif name == "tool_start":
+            self.finish_line()
+            print(f"-> {data['name']} {json.dumps(data['arguments'], ensure_ascii=False)}", file=sys.stderr)
+        elif name == "tool_end":
+            marker = "ok" if data["ok"] else "error"
+            preview = str(data["content"]).replace("\n", " ")[:180]
+            print(f"<- {data['name']} [{marker}] {preview}", file=sys.stderr)
+
+    def finish_line(self) -> None:
+        if self.line_open:
+            print()
+            self.line_open = False
+
+    def consume_streamed(self) -> bool:
+        value = self.streamed
+        self.streamed = False
+        return value
 
 
-def _emit(payload: dict[str, Any], json_output: bool) -> None:
+def _emit(payload: dict[str, Any], json_output: bool, *, suppress_answer: bool = False) -> None:
     if json_output:
         print(json.dumps(payload, ensure_ascii=False))
     elif "answer" in payload:
-        print(payload["answer"])
+        if not suppress_answer:
+            print(payload["answer"])
         print(
             f"\n[{payload['status']}: {payload['stop_reason']}; "
             f"turns={payload['turns']}, tools={payload['tool_calls']}]"

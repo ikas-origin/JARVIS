@@ -16,9 +16,12 @@ class FakeClient:
         self.responses = iter(responses)
         self.requests = []
 
-    def complete(self, messages, tools):
+    def complete(self, messages, tools, on_text_delta=None):
         self.requests.append((messages, tools))
-        return next(self.responses)
+        response = next(self.responses)
+        if on_text_delta and response.content:
+            on_text_delta(response.content)
+        return response
 
 
 class AgentTests(unittest.TestCase):

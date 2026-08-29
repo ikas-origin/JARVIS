@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import random
 import time
+from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 from urllib import error, request
 
@@ -18,7 +19,12 @@ from .types import Message, ModelResponse, ToolCall
 
 
 class ModelClient(Protocol):
-    def complete(self, messages: list[Message], tools: list[dict[str, Any]]) -> ModelResponse: ...
+    def complete(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+        on_text_delta: Callable[[str], None] | None = None,
+    ) -> ModelResponse: ...
 
 
 def parse_chat_completion(payload: dict[str, Any]) -> ModelResponse:
@@ -70,9 +76,22 @@ class OpenAICompatibleClient:
         self.timeout = timeout
         self.max_retries = max_retries
 
-    def complete(self, messages: list[Message], tools: list[dict[str, Any]]) -> ModelResponse:
+    def complete(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]],
+        on_text_delta: Callable[[str], None] | None = None,
+    ) -> ModelResponse:
+        streaming = on_text_delta is not None
         body = json.dumps(
-            {"model": self.model, "messages": messages, "tools": tools, "tool_choice": "auto"},
+            {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto",
+                "stream": streaming,
+                **({"stream_options": {"include_usage": True}} if streaming else {}),
+            },
             ensure_ascii=False,
         ).encode("utf-8")
         last_error: Exception | None = None
@@ -89,6 +108,8 @@ class OpenAICompatibleClient:
             )
             try:
                 with request.urlopen(http_request, timeout=self.timeout) as response:
+                    if streaming:
+                        return parse_chat_completion_stream(response, on_text_delta)
                     payload = json.loads(response.read().decode("utf-8"))
                 if not isinstance(payload, dict):
                     raise ModelResponseError("Model response root must be a JSON object")
@@ -111,6 +132,68 @@ class OpenAICompatibleClient:
                 time.sleep((2**attempt) + random.uniform(0, 0.25))
         assert last_error is not None
         raise last_error
+
+
+def parse_chat_completion_stream(
+    lines: Iterable[bytes],
+    on_text_delta: Callable[[str], None],
+) -> ModelResponse:
+    content_parts: list[str] = []
+    tool_parts: dict[int, dict[str, str]] = {}
+    finish_reason: str | None = None
+    usage: dict[str, int] = {}
+    saw_done = False
+    for raw_line in lines:
+        line = raw_line.decode("utf-8").strip()
+        if not line or line.startswith(":") or not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            saw_done = True
+            break
+        chunk = json.loads(data)
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        choice = choices[0]
+        finish_reason = choice.get("finish_reason") or finish_reason
+        delta = choice.get("delta") or {}
+        text = delta.get("content") or ""
+        if text:
+            content_parts.append(text)
+            on_text_delta(text)
+        for raw_call in delta.get("tool_calls") or []:
+            index = int(raw_call.get("index", 0))
+            part = tool_parts.setdefault(index, {"id": "", "name": "", "arguments": ""})
+            if raw_call.get("id"):
+                part["id"] = raw_call["id"]
+            function = raw_call.get("function") or {}
+            part["name"] += function.get("name") or ""
+            part["arguments"] += function.get("arguments") or ""
+    if not saw_done:
+        raise ModelResponseError("Streaming response ended without a [DONE] event")
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": "".join(content_parts),
+                    "tool_calls": [
+                        {
+                            "id": part["id"],
+                            "type": "function",
+                            "function": {"name": part["name"], "arguments": part["arguments"] or "{}"},
+                        }
+                        for _, part in sorted(tool_parts.items())
+                    ],
+                },
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": usage,
+    }
+    return parse_chat_completion(payload)
 
 
 def _safe_error_detail(exc: error.HTTPError, api_key: str) -> str:

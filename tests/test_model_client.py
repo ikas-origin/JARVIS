@@ -1,7 +1,7 @@
 import unittest
 
 from jarvis_agent.errors import ModelResponseError
-from jarvis_agent.model_client import parse_chat_completion
+from jarvis_agent.model_client import parse_chat_completion, parse_chat_completion_stream
 
 
 class ModelParserTests(unittest.TestCase):
@@ -51,3 +51,23 @@ class ModelParserTests(unittest.TestCase):
         with self.assertRaises(ModelResponseError):
             parse_chat_completion({"choices": [{"message": {"content": None}}]})
 
+    def test_stream_accumulates_text_and_fragmented_tool_arguments(self) -> None:
+        deltas = []
+        lines = [
+            b'data: {"choices":[{"delta":{"content":"Hello "},"finish_reason":null}]}\n',
+            b'data: {"choices":[{"delta":{"content":"world"},"finish_reason":null}]}\n',
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read_","arguments":"{\\"pa"}}]},"finish_reason":null}]}\n',
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"file","arguments":"th\\":\\"x.py\\"}"}}]},"finish_reason":"tool_calls"}]}\n',
+            b'data: [DONE]\n',
+        ]
+        response = parse_chat_completion_stream(lines, deltas.append)
+        self.assertEqual(response.content, "Hello world")
+        self.assertEqual(deltas, ["Hello ", "world"])
+        self.assertEqual(response.tool_calls[0].name, "read_file")
+        self.assertEqual(response.tool_calls[0].arguments, {"path": "x.py"})
+
+    def test_stream_requires_done_event(self) -> None:
+        with self.assertRaises(ModelResponseError):
+            parse_chat_completion_stream(
+                [b'data: {"choices":[{"delta":{"content":"partial"}}]}\n'], lambda _text: None
+            )

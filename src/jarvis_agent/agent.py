@@ -49,12 +49,14 @@ class Agent:
         on_event: EventCallback | None = None,
         initial_messages: list[Message] | None = None,
         checkpoint: CheckpointCallback | None = None,
+        stream: bool = False,
     ) -> None:
         self.config = config
         self.client = client
         self.tools = tools
         self.on_event = on_event or (lambda _name, _data: None)
         self.checkpoint = checkpoint or (lambda _messages: None)
+        self.stream = stream
         self.messages: list[Message] = initial_messages or [
             {
                 "role": "system",
@@ -79,7 +81,15 @@ class Agent:
                 max_chars=self.config.max_context_chars,
                 per_tool_chars=min(8_000, self.config.max_tool_output_chars),
             )
-            response = self.client.complete(request_messages, self.tools.schemas)
+            response = self.client.complete(
+                request_messages,
+                self.tools.schemas,
+                (
+                    lambda delta: self.on_event("assistant_delta", {"text": delta})
+                    if self.stream
+                    else None
+                ),
+            )
             self.messages.append(_assistant_message(response))
             self._checkpoint()
             if response.content.strip():
