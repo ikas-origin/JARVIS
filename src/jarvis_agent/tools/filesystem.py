@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
-from ..errors import ToolError
+from ..errors import PolicyError, ToolError
 from ..policy import Policy
 from ..tool_protocol import Tool
 from ..types import ToolResult
@@ -53,6 +54,56 @@ def list_files(arguments: dict[str, Any], policy: Policy) -> ToolResult:
                 break
             files.append(_relative(path, policy))
     return ToolResult(True, "\n".join(files), {"count": len(files), "truncated": truncated})
+
+
+def search_text(arguments: dict[str, Any], policy: Policy) -> ToolResult:
+    root = policy.resolve_path(arguments.get("path", "."))
+    if not root.is_dir():
+        raise ToolError(f"Directory does not exist: {arguments.get('path', '.')}")
+    query = arguments["query"]
+    if not query:
+        raise ToolError("query must not be empty")
+    limit = arguments.get("limit", 100)
+    if limit < 1 or limit > 1000:
+        raise ToolError("limit must be between 1 and 1000")
+    flags = 0 if arguments.get("case_sensitive", False) else re.IGNORECASE
+    pattern_text = query if arguments.get("regex", False) else re.escape(query)
+    try:
+        pattern = re.compile(pattern_text, flags)
+    except re.error as error:
+        raise ToolError(f"Invalid regular expression: {error}") from error
+    file_glob = arguments.get("glob", "*")
+    ignored = {".git", ".venv", "__pycache__", "node_modules"}
+    matches: list[str] = []
+    files_searched = 0
+    truncated = False
+    for path in sorted(root.rglob(file_glob)):
+        if any(part in ignored for part in path.relative_to(root).parts) or not path.is_file():
+            continue
+        try:
+            safe_path = policy.resolve_path(str(path))
+            if safe_path.stat().st_size > 2_000_000:
+                continue
+            raw = safe_path.read_bytes()
+            if b"\x00" in raw:
+                continue
+            text = raw.decode("utf-8")
+        except (OSError, UnicodeError, PolicyError):
+            continue
+        files_searched += 1
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if pattern.search(line):
+                matches.append(f"{_relative(safe_path, policy)}:{line_number}: {line[:500]}")
+                if len(matches) >= limit:
+                    truncated = True
+                    break
+        if truncated:
+            break
+    return ToolResult(
+        True,
+        "\n".join(matches),
+        {"match_count": len(matches), "files_searched": files_searched, "truncated": truncated},
+    )
 
 
 def write_file(arguments: dict[str, Any], policy: Policy) -> ToolResult:
@@ -113,6 +164,24 @@ FILESYSTEM_TOOLS = [
         read_file,
     ),
     Tool(
+        "search_text",
+        "Search UTF-8 source files and return workspace-relative path, line number, and matching line.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "path": {"type": "string", "description": "Directory to search; defaults to ."},
+                "glob": {"type": "string", "description": "File glob such as *.py; defaults to *"},
+                "regex": {"type": "boolean", "description": "Treat query as a regular expression"},
+                "case_sensitive": {"type": "boolean"},
+                "limit": {"type": "integer", "description": "Maximum matches; defaults to 100"},
+            },
+            "required": ["query"],
+            **_NO_EXTRA,
+        },
+        search_text,
+    ),
+    Tool(
         "write_file",
         "Create or fully overwrite a UTF-8 text file inside the workspace.",
         {
@@ -139,4 +208,3 @@ FILESYSTEM_TOOLS = [
         edit_file,
     ),
 ]
-

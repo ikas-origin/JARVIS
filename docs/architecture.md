@@ -57,10 +57,15 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 首版工具为：
 
 - `list_files`
+- `search_text`
 - `read_file`
 - `write_file`
 - `edit_file`
 - `run_command`
+
+`search_text` 在本地确定性地返回文件名、行号和短片段，支持 glob、大小写和正则选项，并限制文件大小与结果数。模型负责解释结果，但不负责伪造搜索过程。
+
+每轮模型响应的 provider usage 会在一次 `Agent.run()` 内累加，最终结果同时返回 token 字段和 wall-clock 耗时；如果兼容网关不提供 usage，则明确显示为不可用，不使用字符数冒充精确 token。
 
 所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。
 

@@ -59,6 +59,28 @@ class ToolTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("Unexpected argument", result.content)
 
+    def test_search_text_returns_paths_lines_and_honors_limit(self) -> None:
+        (self.root / "first.py").write_text("Alpha\nneedle here\n", encoding="utf-8")
+        (self.root / "second.py").write_text("NEEDLE again\n", encoding="utf-8")
+        result = self.registry.execute(
+            "search_text", {"query": "needle", "glob": "*.py", "limit": 1}
+        )
+        self.assertTrue(result.ok, result.content)
+        self.assertIn("first.py:2: needle here", result.content)
+        self.assertEqual(result.metadata["match_count"], 1)
+        self.assertTrue(result.metadata["truncated"])
+
+    def test_search_text_supports_regex_and_rejects_invalid_regex(self) -> None:
+        (self.root / "value.txt").write_text("item_42\n", encoding="utf-8")
+        result = self.registry.execute(
+            "search_text", {"query": r"item_\d+", "regex": True, "case_sensitive": True}
+        )
+        self.assertTrue(result.ok)
+        self.assertIn("value.txt:1", result.content)
+        invalid = self.registry.execute("search_text", {"query": "[", "regex": True})
+        self.assertFalse(invalid.ok)
+        self.assertIn("Invalid regular expression", invalid.content)
+
     def test_command_runs_in_workspace_and_strips_secrets(self) -> None:
         old = os.environ.get("JARVIS_API_KEY")
         old_token = os.environ.get("DEMO_TOKEN")

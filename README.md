@@ -91,7 +91,12 @@ object only; progress is suppressed and errors use this shape:
 
 Successful `doctor` output reports whether credentials exist, never their
 value. A completed task returns `ok`, `status`, `answer`, `turns`, and
-`tool_calls`.
+`tool_calls`, plus accumulated provider usage and elapsed time.
+
+The built-in Coding Agent tools are `list_files`, `search_text`, `read_file`,
+`write_file`, `edit_file`, and `run_command`. `search_text` supports literal or
+regular-expression matching, file globs, case control, and a bounded result
+count without requiring an external `grep` or `rg` executable.
 
 ## Tests
 

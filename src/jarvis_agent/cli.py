@@ -222,7 +222,9 @@ def _emit(payload: dict[str, Any], json_output: bool, *, suppress_answer: bool =
             print(payload["answer"])
         print(
             f"\n[{payload['status']}: {payload['stop_reason']}; "
-            f"turns={payload['turns']}, tools={payload['tool_calls']}]"
+            f"turns={payload['turns']}, tools={payload['tool_calls']}, "
+            f"tokens={payload['usage'].get('total_tokens', 'n/a')}, "
+            f"elapsed={payload['elapsed_seconds']:.3f}s]"
         )
     else:
         print("JARVIS configuration")

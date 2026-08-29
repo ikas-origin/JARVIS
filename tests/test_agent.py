@@ -41,13 +41,15 @@ class AgentTests(unittest.TestCase):
         client = FakeClient(
             [
                 ModelResponse(tool_calls=[ToolCall("write-1", "write_file", {"path": "answer.txt", "content": "42"})]),
-                ModelResponse(content="Created answer.txt and verified the write."),
+                ModelResponse(content="Created answer.txt and verified the write.", usage={"total_tokens": 7}),
             ]
         )
         result = Agent(self.config, client, self.registry).run("Create answer.txt")
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.turns, 2)
         self.assertEqual(result.tool_calls, 1)
+        self.assertEqual(result.usage["total_tokens"], 7)
+        self.assertGreaterEqual(result.elapsed_seconds, 0)
         second_messages = client.requests[1][0]
         self.assertEqual(second_messages[-1]["role"], "tool")
         self.assertEqual(second_messages[-1]["tool_call_id"], "write-1")

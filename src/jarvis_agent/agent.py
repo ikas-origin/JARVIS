@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import json
 import platform
+import time
 from typing import Any
 
 from .config import Config
@@ -27,6 +28,8 @@ class AgentResult:
     turns: int
     tool_calls: int
     stop_reason: str
+    usage: dict[str, int]
+    elapsed_seconds: float
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -36,6 +39,8 @@ class AgentResult:
             "turns": self.turns,
             "tool_calls": self.tool_calls,
             "stop_reason": self.stop_reason,
+            "usage": self.usage,
+            "elapsed_seconds": self.elapsed_seconds,
         }
 
 
@@ -67,8 +72,24 @@ class Agent:
         self._checkpoint()
 
     def run(self, task: str) -> AgentResult:
+        started = time.monotonic()
+        usage: dict[str, int] = {}
+
+        def finish(
+            status: str, answer: str, turns: int, tool_calls: int, stop_reason: str
+        ) -> AgentResult:
+            return AgentResult(
+                status,
+                answer,
+                turns,
+                tool_calls,
+                stop_reason,
+                dict(usage),
+                round(time.monotonic() - started, 3),
+            )
+
         if not task.strip():
-            return AgentResult("failed", "Task must not be empty", 0, 0, "invalid_task")
+            return finish("failed", "Task must not be empty", 0, 0, "invalid_task")
         self.messages.append({"role": "user", "content": task.strip()})
         self._checkpoint()
         tool_call_count = 0
@@ -90,18 +111,21 @@ class Agent:
                     else None
                 ),
             )
+            for name, value in response.usage.items():
+                if isinstance(value, int) and not isinstance(value, bool):
+                    usage[name] = usage.get(name, 0) + value
             self.messages.append(_assistant_message(response))
             self._checkpoint()
             if response.content.strip():
                 self.on_event("assistant_text", {"text": response.content})
             if not response.tool_calls:
-                return AgentResult(
+                return finish(
                     "completed", response.content.strip(), turn, tool_call_count, "model_final_answer"
                 )
 
             for call in response.tool_calls:
                 if tool_call_count >= self.config.max_tool_calls:
-                    return AgentResult(
+                    return finish(
                         "stopped",
                         "Stopped before executing more tools because the tool-call limit was reached.",
                         turn,
@@ -129,7 +153,7 @@ class Agent:
                         else (signature, 1)
                     )
                     if repeated_error[1] >= 3:
-                        return AgentResult(
+                        return finish(
                             "stopped",
                             "Stopped after the same tool error occurred three times.",
                             turn,
@@ -137,7 +161,7 @@ class Agent:
                             "repeated_tool_error",
                         )
 
-        return AgentResult(
+        return finish(
             "stopped",
             f"Stopped after reaching the maximum of {self.config.max_turns} model turns.",
             self.config.max_turns,
