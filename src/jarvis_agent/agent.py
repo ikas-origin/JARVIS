@@ -71,6 +71,21 @@ class Agent:
         ]
         self._checkpoint()
 
+    def reset_context(self) -> None:
+        """Start a fresh conversation while preserving the runtime system prompt."""
+        system_message = next(
+            (message for message in self.messages if message.get("role") == "system"),
+            None,
+        )
+        if system_message is None:
+            system_message = {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+                + f"\nRuntime: {platform.system()} {platform.release()}; workspace: {self.config.workspace}",
+            }
+        self.messages = [dict(system_message)]
+        self._checkpoint()
+
     def run(self, task: str) -> AgentResult:
         started = time.monotonic()
         usage: dict[str, int] = {}

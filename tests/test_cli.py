@@ -6,7 +6,9 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from jarvis_agent.cli import main
+from jarvis_agent.cli import _git_branch, _handle_interactive_command, main
+from jarvis_agent.config import Config
+from jarvis_agent.session import SessionStore
 
 
 class CliTests(unittest.TestCase):
@@ -72,3 +74,32 @@ class CliTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload, {"ok": True, "sessions": []})
+
+    def test_git_branch_returns_none_outside_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIsNone(_git_branch(Config.from_env(workspace=directory).workspace))
+
+    def test_interactive_clear_resets_context(self) -> None:
+        class FakeAgent:
+            def __init__(self, workspace: str) -> None:
+                self.config = Config.from_env(workspace=workspace)
+                self.messages = [{"role": "system", "content": "system"}, {"role": "user", "content": "task"}]
+
+            def reset_context(self) -> None:
+                self.messages = self.messages[:1]
+
+        with tempfile.TemporaryDirectory() as directory:
+            agent = FakeAgent(directory)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                should_exit = _handle_interactive_command(
+                    "/clear",
+                    agent,  # type: ignore[arg-type]
+                    None,
+                    SessionStore(Config.from_env(workspace=directory).config_path.parent / "sessions"),
+                    auto_approve=False,
+                    streaming=True,
+                )
+        self.assertFalse(should_exit)
+        self.assertEqual(len(agent.messages), 1)
+        self.assertIn("context cleared", output.getvalue())

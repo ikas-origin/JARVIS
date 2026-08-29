@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 from getpass import getpass
 import json
+from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 
@@ -113,7 +115,14 @@ def main(argv: list[str] | None = None) -> int:
                 display.finish_line()
             _emit(result, args.json_output, suppress_answer=bool(display and display.consume_streamed()))
             return 0 if result["ok"] else 2
-        return _interactive(agent, session.id if session else None, display)
+        return _interactive(
+            agent,
+            session,
+            session_store,
+            display,
+            auto_approve=args.yes,
+            streaming=not args.no_stream,
+        )
     except JarvisError as error:
         _emit_error(error.code, str(error), args.json_output)
         return 2
@@ -122,23 +131,109 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
 
-def _interactive(agent: Agent, session_id: str | None, display: "HumanDisplay | None") -> int:
-    suffix = f" Session: {session_id}." if session_id else " Session saving is disabled."
-    print("JARVIS interactive Coding Agent." + suffix + " Type /exit to quit.")
+def _interactive(
+    agent: Agent,
+    session: Session | None,
+    store: SessionStore,
+    display: "HumanDisplay | None",
+    *,
+    auto_approve: bool,
+    streaming: bool,
+) -> int:
+    _print_interactive_header(agent.config, session, auto_approve=auto_approve)
     while True:
         try:
-            task = input("\nYou> ").strip()
+            task = input("\nyou> ").strip()
         except EOFError:
             return 0
-        if task in {"/exit", "/quit"}:
-            return 0
         if not task:
+            continue
+        if task.startswith("/"):
+            should_exit = _handle_interactive_command(
+                task,
+                agent,
+                session,
+                store,
+                auto_approve=auto_approve,
+                streaming=streaming,
+            )
+            if should_exit:
+                return 0
             continue
         result = agent.run(task)
         if display:
             display.finish_line()
-        if not display or not display.consume_streamed():
-            print(f"\nJARVIS> {result.answer}")
+        payload = result.to_dict()
+        payload["session_id"] = session.id if session else None
+        _emit(payload, False, suppress_answer=bool(display and display.consume_streamed()))
+
+
+def _print_interactive_header(config: Config, session: Session | None, *, auto_approve: bool) -> None:
+    branch = _git_branch(config.workspace)
+    print(f"JARVIS {__version__}  |  terminal Coding Agent")
+    print(f"workspace  {config.workspace}")
+    print(f"model      {config.model}")
+    print(f"git        {branch or '(not a Git repository)'}")
+    print(f"session    {session.id if session else '(not saved)'}")
+    print(f"approval   {'automatic for ordinary actions' if auto_approve else 'ask before writes/commands'}")
+    print("Enter a coding task, or type /help for commands.")
+
+
+def _handle_interactive_command(
+    raw: str,
+    agent: Agent,
+    session: Session | None,
+    store: SessionStore,
+    *,
+    auto_approve: bool,
+    streaming: bool,
+) -> bool:
+    command = raw.strip().lower()
+    if command in {"/exit", "/quit"}:
+        return True
+    if command == "/help":
+        print(
+            "Interactive commands:\n"
+            "  /status    show workspace, model, session, and context state\n"
+            "  /sessions  list saved sessions\n"
+            "  /clear     clear conversation context for this session\n"
+            "  /exit      leave JARVIS (also /quit)"
+        )
+        return False
+    if command == "/status":
+        print(f"workspace  {agent.config.workspace}")
+        print(f"model      {agent.config.model}")
+        print(f"git        {_git_branch(agent.config.workspace) or '(not a Git repository)'}")
+        print(f"session    {session.id if session else '(not saved)'}")
+        print(f"messages   {len(agent.messages)}")
+        print(f"streaming  {'on' if streaming else 'off'}")
+        print(f"approval   {'automatic' if auto_approve else 'ask'}")
+        return False
+    if command == "/sessions":
+        _emit_sessions([saved.summary() for saved in store.list()], False)
+        return False
+    if command == "/clear":
+        agent.reset_context()
+        print("Conversation context cleared. Workspace files were not changed.")
+        return False
+    print(f"Unknown command: {raw}. Type /help to see available commands.")
+    return False
+
+
+def _git_branch(workspace: Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    branch = completed.stdout.strip()
+    return branch if completed.returncode == 0 and branch else None
 
 
 def _configure(config: Config) -> int:
@@ -197,14 +292,14 @@ class HumanDisplay:
             self.streamed = True
         elif name == "model_request":
             self.finish_line()
-            print(f"[turn {data['turn']}] Thinking...", file=sys.stderr)
+            print(f"* turn {data['turn']}  thinking", file=sys.stderr)
         elif name == "tool_start":
             self.finish_line()
-            print(f"-> {data['name']} {json.dumps(data['arguments'], ensure_ascii=False)}", file=sys.stderr)
+            print(f"  -> {data['name']} {json.dumps(data['arguments'], ensure_ascii=False)}", file=sys.stderr)
         elif name == "tool_end":
             marker = "ok" if data["ok"] else "error"
             preview = str(data["content"]).replace("\n", " ")[:180]
-            print(f"<- {data['name']} [{marker}] {preview}", file=sys.stderr)
+            print(f"  [{marker}] {data['name']}  {preview}", file=sys.stderr)
 
     def finish_line(self) -> None:
         if self.line_open:

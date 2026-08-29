@@ -113,20 +113,42 @@ jarvis --json doctor
 
 ## 4. 使用 JARVIS 进行 Coding
 
-### 方式一：在目标项目目录运行（推荐）
+### 方式一：在目标项目目录进入交互终端（推荐）
 
-先激活 JARVIS 的虚拟环境，然后进入需要修改的项目：
+这也是 JARVIS 的主界面：激活虚拟环境，进入需要修改的项目，再直接运行 `jarvis`：
 
 ```powershell
 & D:\develop\CodeX\test20260829020730\JARVIS\.venv\Scripts\Activate.ps1
 cd D:\path\to\your-project
 git status
-jarvis --yes "阅读项目，定位失败的测试，修复问题并重新运行测试。不要修改无关文件。"
+jarvis
 ```
 
-此时当前目录自动成为 workspace。JARVIS 的文件工具只能访问该 workspace。
+当前目录自动成为 workspace。启动页会显示模型、Git 分支、session 和审批模式。在 `you>` 后直接描述任务：
 
-### 方式二：不激活虚拟环境
+```text
+you> 阅读项目，定位失败的测试，修复问题并重新运行测试。不要修改无关文件。
+```
+
+| 命令 | 作用 |
+|---|---|
+| `/help` | 显示会话内命令 |
+| `/status` | 显示 workspace、模型、Git、session 和上下文状态 |
+| `/sessions` | 列出已保存会话 |
+| `/clear` | 清空当前对话上下文，不修改项目文件 |
+| `/exit` | 退出 JARVIS |
+
+默认会在写文件和执行命令前询问。可信测试项目可用 `jarvis --yes` 启动，自动批准普通操作；危险命令仍会被拒绝。
+
+### 方式二：一次性执行任务
+
+适合脚本、评测或目标非常明确的任务：
+
+```powershell
+jarvis --yes "检查项目并修复失败的测试，完成后报告修改和验证结果。"
+```
+
+### 方式三：不激活虚拟环境
 
 直接调用 JARVIS 的可执行文件，并显式指定目标项目：
 
@@ -137,29 +159,9 @@ D:\develop\CodeX\test20260829020730\JARVIS\.venv\Scripts\jarvis.exe `
   "检查项目并修复失败的测试，完成后报告修改和验证结果。"
 ```
 
-### 方式三：连续交互
+## 可选实验性图形启动器
 
-不提供任务字符串即可进入交互模式：
-
-```powershell
-cd D:\path\to\your-project
-jarvis --yes
-```
-
-示例：
-
-```text
-You> 阅读这个项目并解释主要模块
-You> 给解析器增加非法输入测试并运行测试
-You> 根据测试失败继续修复
-You> /exit
-```
-
-同一次交互进程会保留完整上下文。
-
-## 图形界面启动器
-
-如果不想每次输入 PowerShell 命令，可以启动轻量 GUI：
+JARVIS 以终端交互为主。仓库仍保留早期 Tkinter GUI，用于选择目录和启动一次性任务，但它不是推荐界面，也不计划在本次三天开发周期内扩展成完整桌面 IDE。
 
 ```powershell
 cd D:\develop\CodeX\test20260829020730\JARVIS
@@ -182,6 +184,8 @@ GUI 的使用顺序：
 6. 需要中止时点击 `Stop`。
 
 点击 `Check config` 可以运行配置诊断。GUI 不包含另一套 agent 实现，它通过参数列表启动同一个 `jarvis` CLI，因此工具、安全规则、会话和终止条件完全一致。
+
+界面路线的调研与取舍见 [docs/interface-strategy.md](docs/interface-strategy.md)。
 
 ### 可选：资源管理器右键菜单
 

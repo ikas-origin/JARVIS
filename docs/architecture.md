@@ -46,7 +46,9 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 
 人类输出模式使用 OpenAI 兼容 SSE 流，逐段显示 assistant 文本，并按 tool-call index 拼接可能被拆分的函数名与 JSON 参数。收到 `[DONE]` 后才将完整响应写入历史。`--json` 保持非流式，确保 stdout 始终只有一个完整 JSON 对象；`--no-stream` 可为兼容性较差的网关回退到普通响应。
 
-`jarvis-gui` 是 Tkinter 编写的薄启动层。它使用参数数组和当前虚拟环境的 Python 启动 `python -m jarvis_agent`，不使用 `shell=True`，并合并读取子进程 stdout/stderr 以显示流式过程。GUI 不直接调用模型或工具，因此不会形成第二套 agent loop。可选 PowerShell 脚本可以为当前 Windows 用户注册文件夹和文件夹背景右键菜单，但程序本身不会自动修改注册表。
+终端是 JARVIS 的主交互层。无位置参数的 `jarvis` 启动项目内 REPL，显示 workspace、模型、Git 分支、session 和审批策略，并提供 `/help`、`/status`、`/sessions`、`/clear`、`/exit`。带任务参数时走同一个 agent loop 做一次性执行；`--json` 提供稳定的自动化接口。这三种入口只改变输入输出，不复制核心逻辑。
+
+`jarvis-gui` 是早期 Tkinter 实验性薄启动层，保留用于目录选择和一次性任务启动，但不是项目主界面。它使用参数数组和当前虚拟环境的 Python 启动 `python -m jarvis_agent`，不使用 `shell=True`。GUI 不直接调用模型或工具，因此不会形成第二套 agent loop。可选 PowerShell 脚本可以为当前 Windows 用户注册文件夹和文件夹背景右键菜单，但程序本身不会自动修改注册表。
 
 ## 上下文策略
 
