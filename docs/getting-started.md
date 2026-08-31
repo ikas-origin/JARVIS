@@ -97,7 +97,7 @@ jarvis --json doctor
 & D:\path\to\JARVIS\.venv\Scripts\Activate.ps1
 cd D:\path\to\your-project
 git status
-jarvis
+jarvis --allow-remote
 ```
 
 当前目录自动成为 workspace：
@@ -120,7 +120,7 @@ you> 阅读项目，定位失败的测试，修复问题并重新运行测试。
 一次性执行任务：
 
 ```powershell
-jarvis --yes "检查项目并修复失败的测试，完成后报告修改和验证结果。"
+jarvis --allow-remote --yes "检查项目并修复失败的测试，完成后报告修改和验证结果。"
 ```
 
 不激活环境时可以使用完整路径：
@@ -128,6 +128,7 @@ jarvis --yes "检查项目并修复失败的测试，完成后报告修改和验
 ```powershell
 D:\path\to\JARVIS\.venv\Scripts\jarvis.exe `
   --workspace D:\path\to\your-project `
+  --allow-remote `
   --yes `
   "检查项目并修复失败的测试。"
 ```
@@ -137,11 +138,11 @@ D:\path\to\JARVIS\.venv\Scripts\jarvis.exe `
 任务最好包含目标、验收方式与禁止修改范围：
 
 ```powershell
-jarvis --yes "修复 slugify 对连续空格和中文输入的处理；补充边界测试并运行完整测试，不要修改无关模块。"
+jarvis --allow-remote --yes "修复 slugify 对连续空格和中文输入的处理；补充边界测试并运行完整测试，不要修改无关模块。"
 ```
 
 ```powershell
-jarvis --yes "阅读 src/parser.py 和现有测试，为空输入增加明确错误处理；保持公开 API 兼容，运行所有测试。"
+jarvis --allow-remote --yes "阅读 src/parser.py 和现有测试，为空输入增加明确错误处理；保持公开 API 兼容，运行所有测试。"
 ```
 
 普通模式适合修复 bug、小型功能、测试补充、小范围重构和代码解释。复杂多模块功能建议使用 [Spec 模式](spec-mode.md)。
@@ -152,9 +153,9 @@ jarvis --yes "阅读 src/parser.py 和现有测试，为空输入增加明确错
 
 ```powershell
 jarvis sessions
-jarvis --continue --yes "继续上次工作。"
-jarvis --resume SESSION_ID --yes "继续指定会话。"
-jarvis --no-session --yes "只执行这一次任务。"
+jarvis --allow-remote --continue --yes "继续上次工作。"
+jarvis --allow-remote --resume SESSION_ID --yes "继续指定会话。"
+jarvis --allow-remote --no-session --yes "只执行这一次任务。"
 ```
 
 ## 可选 GUI
@@ -202,5 +203,19 @@ JARVIS 不会自动修改注册表。界面路线见 [interface-strategy.md](int
 ### 流式输出不兼容
 
 ```powershell
-jarvis --no-stream --yes "你的任务"
+jarvis --allow-remote --no-stream --yes "你的任务"
 ```
+
+### 提示必须添加 `--allow-remote`
+
+这是数据边界确认，不是认证错误。远程模型可能收到任务文本、JARVIS 选择读取的源码以及测试输出。确认仓库允许发送给所配置的供应商后添加该参数；如果 Base URL 指向 `localhost`、`127.0.0.1` 或 `::1`，则不需要。
+
+## 项目上下文文件
+
+JARVIS 启动时会从 workspace 根目录加载第一份非空文件，优先级为：
+
+```text
+.jarvis.md > JARVIS.md > AGENTS.override.md > AGENTS.md > CLAUDE.md > .cursorrules
+```
+
+可在其中记录架构、编码约定、测试命令和禁止修改范围。内容最多注入 20,000 字符，超出部分会保留头尾并提示 Agent 使用文件工具读取全文。项目上下文不能覆盖 JARVIS 的安全策略或用户当前任务。

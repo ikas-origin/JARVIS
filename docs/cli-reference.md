@@ -6,6 +6,7 @@
 |---|---|
 | `--workspace PATH` | 指定允许操作的项目目录，默认当前目录 |
 | `--yes` | 自动批准普通写入和命令；高风险命令仍拒绝 |
+| `--allow-remote` | 确认本次可向远程模型发送任务、选中的项目内容与工具输出 |
 | `--max-turns N` | 最大模型循环轮数，默认 20 |
 | `--continue` | 继续当前 workspace 最近会话 |
 | `--resume ID` | 恢复指定会话 |
@@ -51,7 +52,7 @@ Agent 循环：
 可信测试仓库可以使用：
 
 ```powershell
-jarvis --yes "修复测试"
+jarvis --allow-remote --yes "修复测试"
 ```
 
 `--yes` 不解除危险命令限制。任务前后建议检查：
@@ -66,7 +67,7 @@ git diff
 自动化调用：
 
 ```powershell
-jarvis --json --no-session --yes "读取项目并报告测试命令，不修改文件。"
+jarvis --allow-remote --json --no-session --yes "读取项目并报告测试命令，不修改文件。"
 ```
 
 成功结果：
@@ -78,6 +79,8 @@ jarvis --json --no-session --yes "读取项目并报告测试命令，不修改�
   "answer": "...",
   "turns": 3,
   "tool_calls": 2,
+  "tool_usage": {"read_file": 1, "run_command": 1},
+  "verification_status": "not_required",
   "stop_reason": "model_final_answer",
   "usage": {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200},
   "elapsed_seconds": 3.5,
@@ -96,6 +99,7 @@ JSON 模式禁用流式输出，stdout 只包含完整 JSON；进度和人类提
 ## 安全和隐私边界
 
 - 模型会收到 system prompt、用户任务，以及工具读取或搜索到的代码和输出。
+- 远程 Base URL 必须由用户通过 `--allow-remote` 逐次明确确认；本地模型无需确认。
 - 不要在不允许发送给模型供应商的仓库中运行。
 - 文件工具拒绝 workspace 外路径、符号链接越界、`.git`、常见凭据和私钥。
 - `run_command` 从子进程环境移除名称疑似 key、token、secret 或 password 的变量。
@@ -103,6 +107,10 @@ JSON 模式禁用流式输出，stdout 只包含完整 JSON；进度和人类提
 - Spec 模式会进一步按阶段限制写入范围和命令执行。
 - 这些是应用级护栏，不是操作系统沙箱；shell 仍拥有当前用户权限。
 - 只在可信且可安全修改的 Git 仓库中使用，重要项目先提交或备份。
+
+## 完成与验证门
+
+当 `write_file` 或 `edit_file` 成功修改普通项目文件后，JARVIS 不接受模型立即给出的“已完成”。Agent 必须在修改之后成功执行至少一次测试、构建、lint 或其它项目命令。失败命令不会解除验证门，`.jarvis/` 下的 Spec 状态和规划产物不触发该门，因此规划阶段仍然保持只写文档、不执行命令。
 
 ## 开发与测试
 

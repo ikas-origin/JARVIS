@@ -41,13 +41,18 @@ class AgentTests(unittest.TestCase):
         client = FakeClient(
             [
                 ModelResponse(tool_calls=[ToolCall("write-1", "write_file", {"path": "answer.txt", "content": "42"})]),
+                ModelResponse(
+                    tool_calls=[ToolCall("verify-1", "run_command", {"command": "echo verified"})]
+                ),
                 ModelResponse(content="Created answer.txt and verified the write.", usage={"total_tokens": 7}),
             ]
         )
         result = Agent(self.config, client, self.registry).run("Create answer.txt")
         self.assertEqual(result.status, "completed")
-        self.assertEqual(result.turns, 2)
-        self.assertEqual(result.tool_calls, 1)
+        self.assertEqual(result.turns, 3)
+        self.assertEqual(result.tool_calls, 2)
+        self.assertEqual(result.tool_usage, {"write_file": 1, "run_command": 1})
+        self.assertEqual(result.verification_status, "passed")
         self.assertEqual(result.usage["total_tokens"], 7)
         self.assertGreaterEqual(result.elapsed_seconds, 0)
         second_messages = client.requests[1][0]
@@ -102,3 +107,63 @@ class AgentTests(unittest.TestCase):
         result = Agent(self.config, client, self.registry).run("Use a missing tool")
         self.assertEqual(result.stop_reason, "repeated_tool_error")
         self.assertEqual(result.tool_calls, 3)
+        self.assertEqual(result.verification_status, "not_required")
+
+    def test_write_requires_a_successful_command_before_completion(self) -> None:
+        client = FakeClient(
+            [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall("write", "write_file", {"path": "answer.txt", "content": "42"})
+                    ]
+                ),
+                ModelResponse(content="Done"),
+                ModelResponse(
+                    tool_calls=[ToolCall("verify", "run_command", {"command": "echo verified"})]
+                ),
+                ModelResponse(content="Created and verified answer.txt"),
+            ]
+        )
+        events = []
+        result = Agent(
+            self.config,
+            client,
+            self.registry,
+            on_event=lambda name, data: events.append((name, data)),
+        ).run("Create answer.txt")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.turns, 4)
+        self.assertEqual(result.tool_calls, 2)
+        self.assertEqual(result.verification_status, "passed")
+        self.assertIn("verification_required", [name for name, _ in events])
+        self.assertIn("verification gate", client.requests[2][0][-1]["content"])
+
+    def test_failed_command_does_not_satisfy_verification_gate(self) -> None:
+        client = FakeClient(
+            [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall("write", "write_file", {"path": "answer.txt", "content": "42"})
+                    ]
+                ),
+                ModelResponse(
+                    tool_calls=[ToolCall("failed", "run_command", {"command": "exit 1"})]
+                ),
+                ModelResponse(content="Done despite the failure"),
+                ModelResponse(
+                    tool_calls=[ToolCall("passed", "run_command", {"command": "echo fixed"})]
+                ),
+                ModelResponse(content="Done and verified"),
+            ]
+        )
+        result = Agent(self.config, client, self.registry).run("Create answer.txt")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.turns, 5)
+        self.assertEqual(result.tool_calls, 3)
+        self.assertEqual(result.verification_status, "passed")
+
+    def test_project_context_is_injected_into_system_prompt(self) -> None:
+        (self.config.workspace / "AGENTS.md").write_text("Always run unittest.", encoding="utf-8")
+        client = FakeClient([ModelResponse(content="Understood")])
+        agent = Agent(self.config, client, self.registry)
+        self.assertIn("Always run unittest.", agent.messages[0]["content"])

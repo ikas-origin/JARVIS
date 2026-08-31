@@ -13,6 +13,8 @@ JARVIS 是一个轻量级、终端优先的 Coding Agent，可以理解为简易
 - workspace 路径隔离、写入审批、危险命令拒绝
 - 流式输出、token/耗时统计、明确停止原因
 - 对话持久化以及 `--continue`、`--resume`
+- 自动加载 `JARVIS.md`、`AGENTS.md` 等项目约定
+- 修改源码后必须通过一次可执行验证才能结束
 - 稳定 JSON 输出，支持脚本和评测
 - Spec 模式：`requirements → design → tasks → implement → verify`
 
@@ -44,7 +46,7 @@ API key 会保存在仓库外的 `~/.jarvis/config.json`，不会被 JARVIS 打�
 
 ```powershell
 cd D:\path\to\your-project
-jarvis
+jarvis --allow-remote
 ```
 
 在交互终端中描述任务：
@@ -56,10 +58,10 @@ you> 阅读项目，修复失败的测试并重新运行验证，不要修改无
 一次性执行：
 
 ```powershell
-jarvis --yes "实现用户登录接口，补充测试并运行完整测试套件。"
+jarvis --allow-remote --yes "实现用户登录接口，补充测试并运行完整测试套件。"
 ```
 
-默认情况下，JARVIS 会在写文件或执行命令前询问。`--yes` 自动批准普通操作，但不会解除危险命令限制。
+远程模型会收到任务、Agent 主动读取的项目内容和命令输出，因此必须使用 `--allow-remote` 明确确认；本地模型不需要该参数。默认情况下，JARVIS 会在写文件或执行命令前询问。`--yes` 自动批准普通操作，但不会解除危险命令限制。
 
 ## Spec 模式
 
@@ -85,6 +87,8 @@ you> /spec verify
 - [Spec 驱动开发](docs/spec-mode.md)
 - [CLI、工具、JSON 与安全参考](docs/cli-reference.md)
 - [架构说明](docs/architecture.md)
+- [Hermes 启发的演进路线与 TaskBoard 评测](docs/hermes-inspired-roadmap.md)
+- [2026-08-31 TaskBoard 三轮评测结果](docs/taskboard-evaluation-2026-08-31.md)
 - [终端界面选型](docs/interface-strategy.md)
 
 ## 开发与测试
@@ -94,7 +98,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-当前版本：`0.2.0`。
+当前版本：`0.3.0`。
 
 ## License
 

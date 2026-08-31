@@ -7,13 +7,31 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from jarvis_agent.cli import _git_branch, _handle_interactive_command, _interactive, main
+from jarvis_agent.cli import (
+    _git_branch,
+    _handle_interactive_command,
+    _interactive,
+    _require_remote_consent,
+    main,
+)
 from jarvis_agent.config import Config
 from jarvis_agent.session import SessionStore
 from jarvis_agent.spec import SpecStore
 
 
 class CliTests(unittest.TestCase):
+    def test_remote_model_requires_explicit_data_consent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config("key", "model", "https://api.example.test/v1", Path(directory))
+            with self.assertRaisesRegex(Exception, "--allow-remote"):
+                _require_remote_consent(config, False)
+            _require_remote_consent(config, True)
+
+    def test_local_model_does_not_require_remote_consent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config("key", "model", "http://127.0.0.1:11434/v1", Path(directory))
+            _require_remote_consent(config, False)
+
     def test_json_doctor_has_stable_shape_and_no_secret(self) -> None:
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ,

@@ -82,6 +82,11 @@ class Config:
                 "JARVIS_BASE_URL must use HTTPS unless it points to a local model server"
             )
 
+    @property
+    def model_endpoint_is_local(self) -> bool:
+        parsed = urlparse(self.base_url)
+        return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
     def doctor(self) -> dict[str, object]:
         missing = [
             name
@@ -103,6 +108,12 @@ class Config:
             "auth": {"available": bool(self.api_key), "source": self.auth_source},
             "model": self.model,
             "base_url": self.base_url,
+            "model_endpoint": "local" if self.model_endpoint_is_local else "remote",
+            "remote_data_notice": (
+                None
+                if self.model_endpoint_is_local
+                else "Task text, selected workspace files, and command output may be sent to this endpoint."
+            ),
             "transport_secure": transport_secure,
             "workspace": str(self.workspace),
             "config_path": str(self.config_path),

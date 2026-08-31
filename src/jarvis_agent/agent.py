@@ -12,6 +12,7 @@ from typing import Any
 from .config import Config
 from .context import trim_messages
 from .model_client import ModelClient
+from .project_context import load_project_context
 from .prompts import SYSTEM_PROMPT
 from .tool_protocol import ToolRegistry
 from .types import Message, ModelResponse, ToolCall
@@ -30,6 +31,8 @@ class AgentResult:
     stop_reason: str
     usage: dict[str, int]
     elapsed_seconds: float
+    tool_usage: dict[str, int]
+    verification_status: str
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +44,8 @@ class AgentResult:
             "stop_reason": self.stop_reason,
             "usage": self.usage,
             "elapsed_seconds": self.elapsed_seconds,
+            "tool_usage": self.tool_usage,
+            "verification_status": self.verification_status,
         }
 
 
@@ -62,13 +67,7 @@ class Agent:
         self.on_event = on_event or (lambda _name, _data: None)
         self.checkpoint = checkpoint or (lambda _messages: None)
         self.stream = stream
-        self.messages: list[Message] = initial_messages or [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-                + f"\nRuntime: {platform.system()} {platform.release()}; workspace: {config.workspace}",
-            }
-        ]
+        self.messages: list[Message] = initial_messages or [self._new_system_message()]
         self._checkpoint()
 
     def reset_context(self) -> None:
@@ -78,17 +77,15 @@ class Agent:
             None,
         )
         if system_message is None:
-            system_message = {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-                + f"\nRuntime: {platform.system()} {platform.release()}; workspace: {self.config.workspace}",
-            }
+            system_message = self._new_system_message()
         self.messages = [dict(system_message)]
         self._checkpoint()
 
     def run(self, task: str) -> AgentResult:
         started = time.monotonic()
         usage: dict[str, int] = {}
+        tool_usage: dict[str, int] = {}
+        verification_status = "not_required"
 
         def finish(
             status: str, answer: str, turns: int, tool_calls: int, stop_reason: str
@@ -101,6 +98,8 @@ class Agent:
                 stop_reason,
                 dict(usage),
                 round(time.monotonic() - started, 3),
+                dict(tool_usage),
+                verification_status,
             )
 
         if not task.strip():
@@ -109,6 +108,7 @@ class Agent:
         self._checkpoint()
         tool_call_count = 0
         repeated_error: tuple[str, int] | None = None
+        needs_verification = False
 
         for turn in range(1, self.config.max_turns + 1):
             self.on_event("model_request", {"turn": turn})
@@ -134,6 +134,20 @@ class Agent:
             if response.content.strip():
                 self.on_event("assistant_text", {"text": response.content})
             if not response.tool_calls:
+                if needs_verification and self.tools.policy.commands_allowed:
+                    self.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "JARVIS verification gate: files were changed after the last successful "
+                                "command. Run the most relevant tests, build, lint, or other executable "
+                                "check now. If it fails, fix the problem and rerun it before answering."
+                            ),
+                        }
+                    )
+                    self._checkpoint()
+                    self.on_event("verification_required", {"turn": turn})
+                    continue
                 return finish(
                     "completed", response.content.strip(), turn, tool_call_count, "model_final_answer"
                 )
@@ -148,8 +162,18 @@ class Agent:
                         "max_tool_calls",
                     )
                 tool_call_count += 1
+                tool_usage[call.name] = tool_usage.get(call.name, 0) + 1
                 self.on_event("tool_start", {"name": call.name, "arguments": call.arguments})
                 result = self.tools.execute(call.name, call.arguments)
+                if result.ok and call.name in {"write_file", "edit_file"}:
+                    path = str(result.metadata.get("path", "")).replace("\\", "/")
+                    if not path.startswith(".jarvis/"):
+                        needs_verification = True
+                        verification_status = "required"
+                elif result.ok and call.name == "run_command":
+                    if needs_verification:
+                        verification_status = "passed"
+                    needs_verification = False
                 payload = json.dumps(result.to_payload(), ensure_ascii=False)
                 if len(payload) > self.config.max_tool_output_chars:
                     payload = _truncate(payload, self.config.max_tool_output_chars)
@@ -186,6 +210,16 @@ class Agent:
 
     def _checkpoint(self) -> None:
         self.checkpoint(self.messages)
+
+    def _new_system_message(self) -> Message:
+        content = (
+            SYSTEM_PROMPT
+            + f"\nRuntime: {platform.system()} {platform.release()}; workspace: {self.config.workspace}"
+        )
+        project_context = load_project_context(self.config.workspace)
+        if project_context is not None:
+            content += project_context.prompt_section(self.config.workspace)
+        return {"role": "system", "content": content}
 
 
 def _assistant_message(response: ModelResponse) -> Message:

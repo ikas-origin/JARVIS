@@ -49,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workspace", default=".", help="directory JARVIS may inspect and modify")
     parser.add_argument("--max-turns", type=int, default=20, help="maximum model turns (default: 20)")
     parser.add_argument("--yes", action="store_true", help="approve non-dangerous writes and commands")
+    parser.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="acknowledge that task text, selected files, and tool output may be sent to a remote model",
+    )
     parser.add_argument("--json", action="store_true", dest="json_output", help="emit one JSON object")
     session_group = parser.add_mutually_exclusive_group()
     session_group.add_argument(
@@ -65,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     args = build_parser().parse_args(argv)
     try:
         config = Config.from_env(workspace=args.workspace, max_turns=args.max_turns)
@@ -84,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.no_session and (args.continue_session or args.resume):
             raise JarvisError("--no-session cannot be combined with --continue or --resume")
         config.validate_for_run()
+        _require_remote_consent(config, args.allow_remote)
         task = " ".join(args.items).strip()
         if not task and args.json_output:
             raise JarvisError("Interactive mode cannot be combined with --json; provide a task")
@@ -530,6 +537,24 @@ def _confirm(action: str) -> bool:
     return answer in {"y", "yes"}
 
 
+def _require_remote_consent(config: Config, allow_remote: bool) -> None:
+    if config.model_endpoint_is_local or allow_remote:
+        return
+    raise JarvisError(
+        "The configured model endpoint is remote. JARVIS may send it task text, selected workspace "
+        "files, and command output. Review the provider's data policy, then rerun with --allow-remote "
+        "to acknowledge this for the current invocation."
+    )
+
+
+def _configure_stdio() -> None:
+    """Use stable UTF-8 output for Windows terminals, pipes, and JSON capture."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 class HumanDisplay:
     def __init__(self) -> None:
         self.line_open = False
@@ -545,6 +570,9 @@ class HumanDisplay:
         elif name == "model_request":
             self.finish_line()
             print(f"* turn {data['turn']}  thinking", file=sys.stderr)
+        elif name == "verification_required":
+            self.finish_line()
+            print("* verification required after file changes", file=sys.stderr)
         elif name == "tool_start":
             self.finish_line()
             print(f"  -> {data['name']} {json.dumps(data['arguments'], ensure_ascii=False)}", file=sys.stderr)
@@ -574,11 +602,12 @@ def _emit(payload: dict[str, Any], json_output: bool, *, suppress_answer: bool =
             f"\n[{payload['status']}: {payload['stop_reason']}; "
             f"turns={payload['turns']}, tools={payload['tool_calls']}, "
             f"tokens={payload['usage'].get('total_tokens', 'n/a')}, "
+            f"verification={payload['verification_status']}, "
             f"elapsed={payload['elapsed_seconds']:.3f}s]"
         )
     else:
         print("JARVIS configuration")
-        for key in ("model", "base_url", "workspace"):
+        for key in ("model", "base_url", "model_endpoint", "workspace"):
             print(f"  {key}: {payload[key] or '(missing)'}")
         key_status = (
             f"available via {payload['auth']['source']}" if payload["auth"]["available"] else "missing"
@@ -586,6 +615,8 @@ def _emit(payload: dict[str, Any], json_output: bool, *, suppress_answer: bool =
         print(f"  api key: {key_status}")
         print(f"  auth source: {payload['auth']['source']}")
         print(f"  config file: {payload['config_path']}")
+        if payload["remote_data_notice"]:
+            print(f"  data notice: {payload['remote_data_notice']}")
         if payload["missing"]:
             print("  missing: " + ", ".join(payload["missing"]))
 

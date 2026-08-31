@@ -21,6 +21,7 @@ def build_cli_command(
     max_turns: int,
     auto_approve: bool,
     continue_session: bool,
+    allow_remote: bool = False,
 ) -> list[str]:
     command = [
         python,
@@ -33,6 +34,8 @@ def build_cli_command(
     ]
     if auto_approve:
         command.append("--yes")
+    if allow_remote:
+        command.append("--allow-remote")
     if continue_session:
         command.append("--continue")
     command.append(task)
@@ -51,6 +54,7 @@ class JarvisGUI:
         self.workspace = tk.StringVar(value=str(Path(workspace).expanduser().resolve()))
         self.auto_approve = tk.BooleanVar(value=True)
         self.continue_session = tk.BooleanVar(value=False)
+        self.allow_remote = tk.BooleanVar(value=False)
         self.max_turns = tk.IntVar(value=20)
         self.status = tk.StringVar(value="Ready")
 
@@ -84,6 +88,11 @@ class JarvisGUI:
         ttk.Checkbutton(options, text="继续当前项目最近会话", variable=self.continue_session).pack(
             side=tk.LEFT, padx=(16, 0)
         )
+        ttk.Checkbutton(
+            options,
+            text="允许向远程模型发送项目上下文",
+            variable=self.allow_remote,
+        ).pack(side=tk.LEFT, padx=(16, 0))
         ttk.Label(options, text="最大轮次:").pack(side=tk.LEFT, padx=(16, 4))
         ttk.Spinbox(options, from_=1, to=100, textvariable=self.max_turns, width=5).pack(side=tk.LEFT)
 
@@ -126,6 +135,7 @@ class JarvisGUI:
             max_turns=max(1, int(self.max_turns.get())),
             auto_approve=self.auto_approve.get(),
             continue_session=self.continue_session.get(),
+            allow_remote=self.allow_remote.get(),
         )
         self._start(command, workspace)
 
@@ -227,4 +237,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

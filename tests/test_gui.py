@@ -30,5 +30,16 @@ class GuiCommandTests(unittest.TestCase):
             continue_session=False,
         )
         self.assertNotIn("--yes", command)
-        self.assertNotIn("--continue", command)
 
+    def test_remote_consent_flag_is_explicit(self) -> None:
+        command = build_cli_command(
+            python=sys.executable,
+            workspace="C:/demo",
+            task="inspect",
+            max_turns=20,
+            auto_approve=False,
+            continue_session=False,
+            allow_remote=True,
+        )
+        self.assertIn("--allow-remote", command)
+        self.assertNotIn("--continue", command)

@@ -35,6 +35,7 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 - `agent.py`：唯一 agent loop、轮次与工具次数、重复错误终止。
 - `model_client.py`：普通 HTTP 模型请求、有限重试、响应解析；不包含 agent 决策。
 - `context.py`：确定性裁剪历史，保证 assistant tool call 与 tool result 不被拆散。
+- `project_context.py`：按优先级加载有界的项目约定文件并注入初始 system prompt。
 - `spec.py`：项目内 Spec 产物、阶段状态机、任务解析和阶段提示词。
 - `tool_protocol.py`：工具 schema、注册表、参数验证和异常边界。
 - `tools/`：工作区文件操作与本地命令执行。
@@ -82,6 +83,8 @@ requirements --approve--> design --approve--> tasks --approve--> implementing
 
 当前使用字符数作为与模型无关的保守预算，不声称它是精确 token 数。后续可以在模型适配层增加 tokenizer，而不改变 agent loop。
 
+启动时会从 workspace 根目录选择第一份非空上下文文件：`.jarvis.md`、`JARVIS.md`、`AGENTS.override.md`、`AGENTS.md`、`CLAUDE.md`、`.cursorrules`。单文件限制 20,000 字符，超限时保留头尾。上下文文本被明确标记为仓库约定，不能覆盖安全策略和当前用户任务。首版只做根目录发现；按访问路径渐进加载子目录约定留在后续路线图中。
+
 ## 工具与执行
 
 首版工具为：
@@ -97,6 +100,8 @@ requirements --approve--> design --approve--> tasks --approve--> implementing
 
 每轮模型响应的 provider usage 会在一次 `Agent.run()` 内累加，最终结果同时返回 token 字段和 wall-clock 耗时；如果兼容网关不提供 usage，则明确显示为不可用，不使用字符数冒充精确 token。
 
+结果同时包含按工具名汇总的 `tool_usage` 和 `verification_status`（`not_required`、`required`、`passed`），用于区分“模型说完成”和“修改后确有成功命令”的评测。CLI 启动时将 stdout/stderr 固定为 UTF-8，使 Windows 控制台、管道和 JSON 文件中的中文保持一致。
+
 所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。
 
 这层策略是应用级护栏，不是操作系统沙箱。特别是 shell 命令仍可能主动访问 workspace 外的位置，因此 README 明确要求只在可信任务、允许修改的仓库中运行。
@@ -104,6 +109,7 @@ requirements --approve--> design --approve--> tasks --approve--> implementing
 ## 终止条件
 
 - 模型返回文本且无工具调用：`model_final_answer`。
+- 普通项目文件在最后一次成功命令后又发生写入：拒绝结束并注入验证提醒；只有后续命令成功才可完成。
 - 达到模型轮次上限：`max_turns`。
 - 达到工具调用上限：`max_tool_calls`。
 - 连续三次相同工具错误：`repeated_tool_error`。
