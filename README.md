@@ -98,7 +98,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-当前版本：`0.3.1`。
+当前提交版本：`1.0.0`。
 
 ## License
 
