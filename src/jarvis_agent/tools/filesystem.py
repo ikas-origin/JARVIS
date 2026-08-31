@@ -35,6 +35,39 @@ def read_file(arguments: dict[str, Any], policy: Policy) -> ToolResult:
     )
 
 
+def read_files(arguments: dict[str, Any], policy: Policy) -> ToolResult:
+    """Read several known text files without requiring one model round-trip per file."""
+    paths = arguments["paths"]
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 8:
+        raise ToolError("paths must contain between 1 and 8 file paths")
+    if any(not isinstance(path, str) or not path.strip() for path in paths):
+        raise ToolError("every paths item must be a non-empty string")
+    if len(set(paths)) != len(paths):
+        raise ToolError("paths must not contain duplicates")
+    offset = arguments.get("offset", 1)
+    limit = arguments.get("limit", 300)
+    if offset < 1 or limit < 1 or limit > 500:
+        raise ToolError("offset must be >= 1 and limit must be between 1 and 500")
+
+    sections: list[str] = []
+    files: list[dict[str, Any]] = []
+    for requested_path in paths:
+        result = read_file(
+            {"path": requested_path, "offset": offset, "limit": limit},
+            policy,
+        )
+        relative = str(result.metadata["path"])
+        sections.append(f"===== {relative} =====\n{result.content}")
+        files.append(
+            {
+                "path": relative,
+                "line_count": result.metadata["line_count"],
+                "returned_lines": result.metadata["returned_lines"],
+            }
+        )
+    return ToolResult(True, "\n\n".join(sections), {"file_count": len(files), "files": files})
+
+
 def list_files(arguments: dict[str, Any], policy: Policy) -> ToolResult:
     root = policy.resolve_path(arguments.get("path", "."))
     if not root.is_dir():
@@ -168,6 +201,32 @@ FILESYSTEM_TOOLS = [
             **_NO_EXTRA,
         },
         read_file,
+    ),
+    Tool(
+        "read_files",
+        (
+            "Read 1 to 8 known UTF-8 text files with line numbers in one call. Prefer this after "
+            "list_files or search_text identifies multiple small related files that can be inspected together."
+        ),
+        {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 8,
+                },
+                "offset": {"type": "integer", "description": "First line in every file, 1-based"},
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum lines per file, defaults to 300 and is capped at 500",
+                },
+            },
+            "required": ["paths"],
+            **_NO_EXTRA,
+        },
+        read_files,
     ),
     Tool(
         "search_text",

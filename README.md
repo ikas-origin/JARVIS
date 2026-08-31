@@ -9,7 +9,7 @@ JARVIS 是一个轻量级、终端优先的 Coding Agent，可以理解为简易
 ## 核心能力
 
 - 多轮自主 Coding：读取、搜索、修改、运行、观察、继续修复
-- 六个本地工具：文件列表、代码搜索、读取、写入、精确编辑、命令执行
+- 七个本地工具：文件列表、代码搜索、单文件/批量读取、写入、精确编辑、命令执行
 - workspace 路径隔离、写入审批、危险命令拒绝
 - 流式输出、token/耗时统计、明确停止原因
 - 对话持久化以及 `--continue`、`--resume`
@@ -98,7 +98,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-当前版本：`0.3.0`。
+当前版本：`0.3.1`。
 
 ## License
 

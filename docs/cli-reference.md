@@ -28,6 +28,7 @@ jarvis --help
 | `list_files` | 浏览 workspace 文件结构 |
 | `search_text` | 按文本或正则搜索并返回文件、行号和片段 |
 | `read_file` | 读取带行号的 UTF-8 文本 |
+| `read_files` | 一次读取 1～8 个已知的小型相关文件，降低模型往返次数 |
 | `write_file` | 创建或完整写入文件 |
 | `edit_file` | 唯一精确匹配后替换文本 |
 | `run_command` | 在 workspace 中运行带超时和输出限制的命令 |

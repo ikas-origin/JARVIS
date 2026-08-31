@@ -92,11 +92,14 @@ requirements --approve--> design --approve--> tasks --approve--> implementing
 - `list_files`
 - `search_text`
 - `read_file`
+- `read_files`
 - `write_file`
 - `edit_file`
 - `run_command`
 
 `search_text` 在本地确定性地返回文件名、行号和短片段，支持 glob、大小写和正则选项，并限制文件大小与结果数。模型负责解释结果，但不负责伪造搜索过程。
+
+`read_files` 用于在已经知道文件路径后批量读取 1～8 个相关 UTF-8 文件，统一使用相同的 offset/limit，并保留逐文件元数据。它不扩大路径权限：任意路径越界、凭据文件或 Git 元数据仍会使整个调用失败。写工具继续保持独立和串行，不提供批量覆盖。
 
 每轮模型响应的 provider usage 会在一次 `Agent.run()` 内累加，最终结果同时返回 token 字段和 wall-clock 耗时；如果兼容网关不提供 usage，则明确显示为不可用，不使用字符数冒充精确 token。
 

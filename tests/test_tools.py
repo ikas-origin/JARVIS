@@ -37,6 +37,32 @@ class ToolTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.metadata["error_type"], "policy_error")
 
+    def test_read_files_batches_known_files_with_metadata(self) -> None:
+        (self.root / "one.py").write_text("first = 1\n", encoding="utf-8")
+        (self.root / "two.py").write_text("second = 2\n", encoding="utf-8")
+        result = self.registry.execute(
+            "read_files", {"paths": ["one.py", "two.py"], "limit": 20}
+        )
+        self.assertTrue(result.ok, result.content)
+        self.assertIn("===== one.py =====", result.content)
+        self.assertIn("1 | first = 1", result.content)
+        self.assertIn("===== two.py =====", result.content)
+        self.assertEqual(result.metadata["file_count"], 2)
+        self.assertEqual([item["path"] for item in result.metadata["files"]], ["one.py", "two.py"])
+
+    def test_read_files_rejects_invalid_or_sensitive_batches(self) -> None:
+        (self.root / "safe.txt").write_text("safe", encoding="utf-8")
+        (self.root / ".env").write_text("SECRET=value", encoding="utf-8")
+        duplicate = self.registry.execute("read_files", {"paths": ["safe.txt", "safe.txt"]})
+        sensitive = self.registry.execute("read_files", {"paths": ["safe.txt", ".env"]})
+        oversized = self.registry.execute(
+            "read_files", {"paths": [f"file-{index}.txt" for index in range(9)]}
+        )
+        self.assertFalse(duplicate.ok)
+        self.assertFalse(sensitive.ok)
+        self.assertEqual(sensitive.metadata["error_type"], "policy_error")
+        self.assertFalse(oversized.ok)
+
     def test_sensitive_files_and_git_metadata_are_refused(self) -> None:
         (self.root / ".env").write_text("TOKEN=secret", encoding="utf-8")
         env_result = self.registry.execute("read_file", {"path": ".env"})
