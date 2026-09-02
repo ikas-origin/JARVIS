@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
 import unittest
@@ -7,6 +8,27 @@ from jarvis_agent.session import SessionStore
 
 
 class SessionStoreTests(unittest.TestCase):
+    def test_parallel_independent_session_checkpoints_remain_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            store = SessionStore(root / "sessions")
+
+            def save_one(index: int) -> str:
+                session = store.create(workspace)
+                session.messages = [{"role": "user", "content": f"task {index}"}]
+                store.save(session)
+                return session.id
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                session_ids = set(pool.map(save_one, range(32)))
+
+            self.assertEqual(len(session_ids), 32)
+            loaded = store.list()
+            self.assertEqual({session.id for session in loaded}, session_ids)
+            self.assertTrue(all(session.messages for session in loaded))
+
     def test_round_trip_and_latest_are_workspace_bound(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -45,3 +67,17 @@ class SessionStoreTests(unittest.TestCase):
             store = SessionStore(Path(directory))
             with self.assertRaises(ConfigurationError):
                 store.load("../config")
+
+    def test_corrupt_session_does_not_hide_other_valid_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            store = SessionStore(root / "sessions")
+            valid = store.create(workspace)
+            valid.messages = [{"role": "user", "content": "valid task"}]
+            store.save(valid)
+            (store.directory / "broken.json").write_text("{not-json", encoding="utf-8")
+
+            sessions = store.list()
+            self.assertEqual([session.id for session in sessions], [valid.id])

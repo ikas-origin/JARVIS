@@ -45,14 +45,20 @@ def trim_messages(
     """
     normalized = deepcopy(messages)
     for message in normalized:
-        if message.get("role") == "tool" and len(message.get("content", "")) > per_tool_chars:
+        if (
+            message.get("role") == "tool"
+            and isinstance(message.get("content"), str)
+            and len(message["content"]) > per_tool_chars
+        ):
             content = message["content"]
-            half = per_tool_chars // 2
-            message["content"] = (
-                content[:half]
-                + "\n...[older tool output truncated by JARVIS]...\n"
-                + content[-half:]
-            )
+            marker = "\n...[older tool output truncated by JARVIS]...\n"
+            if per_tool_chars <= len(marker):
+                message["content"] = marker[:per_tool_chars]
+            else:
+                remaining = per_tool_chars - len(marker)
+                head = remaining // 2
+                tail = remaining - head
+                message["content"] = content[:head] + marker + content[-tail:]
     if _size(normalized) <= max_chars:
         return normalized
 

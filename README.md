@@ -95,6 +95,7 @@ you> /spec verify
 - [Hermes 启发的演进路线与 TaskBoard 评测](docs/hermes-inspired-roadmap.md)
 - [1.1 终端体验、可靠性增强与 1.2 优先级](docs/v1.1-design-notes.md)
 - [外部审查问题复现与修复记录](docs/external-review-follow-up-2026-09-02.md)
+- [工程韧性审查与极端场景测试](docs/engineering-resilience-review-2026-09-02.md)
 - [2026-08-31 TaskBoard 三轮评测结果](docs/taskboard-evaluation-2026-08-31.md)
 - [终端界面选型](docs/interface-strategy.md)
 

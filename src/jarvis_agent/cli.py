@@ -203,7 +203,13 @@ def _interactive(
                 "Use /spec status and the phase-specific /spec command instead of a free-form task."
             )
             continue
-        result = agent.run(task)
+        try:
+            result = agent.run(task)
+        except JarvisError as error:
+            if display:
+                display.finish_line()
+            _emit_error(error.code, str(error), False)
+            continue
         if display:
             display.finish_line()
         payload = result.to_dict()

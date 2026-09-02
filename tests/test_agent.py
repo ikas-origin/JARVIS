@@ -104,6 +104,33 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result.status, "stopped")
         self.assertEqual(result.stop_reason, "max_turns")
 
+    def test_tool_limit_keeps_parallel_tool_call_history_protocol_complete(self) -> None:
+        config = replace(self.config, max_tool_calls=1)
+        client = FakeClient(
+            [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall("first", "list_files", {}),
+                        ToolCall("second", "list_files", {}),
+                    ]
+                )
+            ]
+        )
+        agent = Agent(config, client, self.registry)
+        result = agent.run("Inspect twice")
+
+        self.assertEqual(result.stop_reason, "max_tool_calls")
+        self.assertEqual(result.tool_calls, 1)
+        assistant_ids = {
+            call["id"]
+            for message in agent.messages
+            for call in message.get("tool_calls", [])
+        }
+        tool_messages = [message for message in agent.messages if message["role"] == "tool"]
+        self.assertEqual(assistant_ids, {message["tool_call_id"] for message in tool_messages})
+        skipped = next(message for message in tool_messages if message["tool_call_id"] == "second")
+        self.assertIn("agent_limit_error", skipped["content"])
+
     def test_three_identical_tool_errors_stop_loop(self) -> None:
         client = FakeClient(
             [

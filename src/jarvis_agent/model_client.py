@@ -28,14 +28,27 @@ class ModelClient(Protocol):
 
 
 def parse_chat_completion(payload: dict[str, Any]) -> ModelResponse:
-    try:
-        choice = payload["choices"][0]
-        message = choice["message"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise ModelResponseError("Response does not contain choices[0].message") from exc
-    content = message.get("content") or ""
-    raw_calls = message.get("tool_calls") or []
+    if not isinstance(payload, dict):
+        raise ModelResponseError("Model response root must be a JSON object")
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ModelResponseError("Response does not contain choices[0].message")
+    choice = choices[0]
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        raise ModelResponseError("Response does not contain choices[0].message")
+    content = message.get("content")
+    if content is None:
+        content = ""
+    if not isinstance(content, str):
+        raise ModelResponseError("Assistant content must be text or null")
+    raw_calls = message.get("tool_calls")
+    if raw_calls is None:
+        raw_calls = []
+    if not isinstance(raw_calls, list):
+        raise ModelResponseError("Assistant tool_calls must be an array or null")
     calls: list[ToolCall] = []
+    call_ids: set[str] = set()
     for raw in raw_calls:
         try:
             call_id = raw["id"]
@@ -49,15 +62,23 @@ def parse_chat_completion(payload: dict[str, Any]) -> ModelResponse:
                 raise ValueError("missing tool name")
             if not isinstance(arguments, dict):
                 raise ValueError("tool arguments are not an object")
+            if call_id in call_ids:
+                raise ValueError(f"duplicate tool call id: {call_id}")
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ModelResponseError(f"Invalid tool call in model response: {exc}") from exc
+        call_ids.add(call_id)
         calls.append(ToolCall(call_id, name, arguments))
-    if not isinstance(content, str):
-        raise ModelResponseError("Assistant content must be text or null")
     if not content.strip() and not calls:
         raise ModelResponseError("Model returned neither text nor tool calls")
-    usage = payload.get("usage") or {}
-    return ModelResponse(content, calls, choice.get("finish_reason"), usage)
+    usage = payload.get("usage")
+    if usage is None:
+        usage = {}
+    elif not isinstance(usage, dict):
+        raise ModelResponseError("Model usage must be a JSON object or null")
+    finish_reason = choice.get("finish_reason")
+    if finish_reason is not None and not isinstance(finish_reason, str):
+        raise ModelResponseError("Model finish_reason must be text or null")
+    return ModelResponse(content, calls, finish_reason, usage)
 
 
 class OpenAICompatibleClient:
@@ -189,7 +210,7 @@ def parse_chat_completion_stream(
                 raise ModelResponseError("Streaming tool call index must not be negative")
             part = tool_parts.setdefault(index, {"id": "", "name": "", "arguments": ""})
             if raw_call.get("id"):
-                part["id"] = _stream_fragment(raw_call["id"], "tool call id")
+                part["id"] += _stream_fragment(raw_call["id"], "tool call id")
             function = raw_call.get("function") or {}
             if not isinstance(function, dict):
                 raise ModelResponseError("Streaming tool function must be a JSON object")

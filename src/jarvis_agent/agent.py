@@ -15,7 +15,7 @@ from .model_client import ModelClient
 from .project_context import load_project_context
 from .prompts import SYSTEM_PROMPT
 from .tool_protocol import ToolRegistry
-from .types import Message, ModelResponse, ToolCall
+from .types import Message, ModelResponse, ToolCall, ToolResult
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
@@ -164,8 +164,25 @@ class Agent:
                     "completed", response.content.strip(), turn, tool_call_count, "model_final_answer"
                 )
 
-            for call in response.tool_calls:
+            for call_index, call in enumerate(response.tool_calls):
                 if tool_call_count >= self.config.max_tool_calls:
+                    for skipped in response.tool_calls[call_index:]:
+                        skipped_result = ToolResult(
+                            False,
+                            "Not executed because the agent tool-call limit was reached.",
+                            {"error_type": "agent_limit_error"},
+                        )
+                        self.messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": skipped.id,
+                                "name": skipped.name,
+                                "content": json.dumps(
+                                    skipped_result.to_payload(), ensure_ascii=False
+                                ),
+                            }
+                        )
+                        self._checkpoint()
                     return finish(
                         "stopped",
                         "Stopped before executing more tools because the tool-call limit was reached.",
@@ -261,5 +278,10 @@ def _assistant_message(response: ModelResponse) -> Message:
 
 
 def _truncate(value: str, limit: int) -> str:
-    half = limit // 2
-    return value[:half] + "\n...[tool result truncated]...\n" + value[-half:]
+    marker = "\n...[tool result truncated]...\n"
+    if limit <= len(marker):
+        return marker[:limit]
+    remaining = limit - len(marker)
+    head = remaining // 2
+    tail = remaining - head
+    return value[:head] + marker + value[-tail:]

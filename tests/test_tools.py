@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 from jarvis_agent.policy import Policy
-from jarvis_agent.tool_protocol import ToolRegistry
+from jarvis_agent.tool_protocol import Tool, ToolRegistry
 from jarvis_agent.tools import built_in_tools
 
 
@@ -99,6 +99,26 @@ class ToolTests(unittest.TestCase):
         result = self.registry.execute("read_file", {"path": "x", "extra": True})
         self.assertFalse(result.ok)
         self.assertIn("Unexpected argument", result.content)
+
+    def test_unexpected_tool_exception_is_contained_at_registry_boundary(self) -> None:
+        def explode(_arguments, _policy):
+            raise RuntimeError("plugin exploded")
+
+        registry = ToolRegistry(
+            [
+                Tool(
+                    "explode",
+                    "Test defensive boundary",
+                    {"type": "object", "properties": {}, "additionalProperties": False},
+                    explode,
+                )
+            ],
+            Policy(self.root, auto_approve=True),
+        )
+        result = registry.execute("explode", {})
+        self.assertFalse(result.ok)
+        self.assertEqual(result.metadata["error_type"], "internal_tool_error")
+        self.assertIn("plugin exploded", result.content)
 
     def test_search_text_returns_paths_lines_and_honors_limit(self) -> None:
         (self.root / "first.py").write_text("Alpha\nneedle here\n", encoding="utf-8")
@@ -227,20 +247,57 @@ class ToolTests(unittest.TestCase):
         self.assertIn("inspect", invalid_purpose.content)
         self.assertIn("verify", invalid_purpose.content)
 
-    def test_command_timeout_handles_byte_partial_output(self) -> None:
-        timeout = subprocess.TimeoutExpired(
-            cmd="slow-command",
-            timeout=1,
-            output=b"partial stdout",
-            stderr=b"partial stderr",
+    def test_command_timeout_preserves_partial_output(self) -> None:
+        (self.root / "slow_output.py").write_text(
+            "import sys, time\n"
+            "print('partial stdout', flush=True)\n"
+            "print('partial stderr', file=sys.stderr, flush=True)\n"
+            "time.sleep(10)\n",
+            encoding="utf-8",
         )
-        with patch("jarvis_agent.tools.shell.subprocess.run", side_effect=timeout):
-            result = self.registry.execute(
-                "run_command",
-                {"command": "slow-command", "purpose": "inspect", "timeout": 1},
-            )
+        result = self.registry.execute(
+            "run_command",
+            {"command": "python slow_output.py", "purpose": "inspect", "timeout": 1},
+        )
         self.assertFalse(result.ok)
         self.assertTrue(result.metadata["timed_out"])
         self.assertEqual(result.metadata["purpose"], "inspect")
         self.assertIn("partial stdout", result.content)
         self.assertIn("partial stderr", result.content)
+
+    def test_command_timeout_terminates_descendant_processes(self) -> None:
+        marker = self.root / "descendant-finished.txt"
+        (self.root / "child.py").write_text(
+            "import pathlib, time\ntime.sleep(1.4)\npathlib.Path('descendant-finished.txt').write_text('alive')\n",
+            encoding="utf-8",
+        )
+        (self.root / "parent.py").write_text(
+            "import subprocess, sys, time\n"
+            "subprocess.Popen([sys.executable, 'child.py'])\n"
+            "time.sleep(10)\n",
+            encoding="utf-8",
+        )
+        result = self.registry.execute(
+            "run_command",
+            {"command": "python parent.py", "purpose": "inspect", "timeout": 1},
+        )
+        self.assertFalse(result.ok)
+        self.assertTrue(result.metadata["timed_out"])
+        time.sleep(0.8)
+        self.assertFalse(marker.exists(), "a timed-out command left its descendant running")
+
+    def test_command_output_never_exceeds_configured_limit(self) -> None:
+        registry = ToolRegistry(
+            built_in_tools(command_timeout=2, output_limit=80),
+            Policy(self.root, auto_approve=True),
+        )
+        result = registry.execute(
+            "run_command",
+            {
+                "command": 'python -c "print(\'x\' * 1000)"',
+                "purpose": "inspect",
+            },
+        )
+        self.assertTrue(result.ok, result.content)
+        self.assertTrue(result.metadata["truncated"])
+        self.assertLessEqual(len(result.content), 80)

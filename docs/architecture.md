@@ -106,7 +106,7 @@ requirements --approve--> design --approve--> tasks --approve--> implementing
 
 结果同时包含按工具名汇总的 `tool_usage` 和 `verification_status`（`not_required`、`required`、`passed`），用于区分“模型说完成”和“修改后确有成功命令”的评测。CLI 启动时将 stdout/stderr 固定为 UTF-8，使 Windows 控制台、管道和 JSON 文件中的中文保持一致。
 
-所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。工具注册表递归校验 object、array items、enum、长度和数值范围，不依赖模型遵守 schema。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。子进程 `PATH` 会优先加入当前 JARVIS Python 解释器所在目录，使未激活虚拟环境时的 `python` 仍与 Agent 自身一致。`run_command` 还必须声明 `purpose=inspect|verify`，使探查动作与完成证据在轨迹中可区分。
+所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。工具注册表递归校验 object、array items、enum、长度和数值范围，不依赖模型遵守 schema。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。子进程 `PATH` 会优先加入当前 JARVIS Python 解释器所在目录，使未激活虚拟环境时的 `python` 仍与 Agent 自身一致。命令作为独立进程组启动；超时时 Windows 通过 kill-on-close Job Object、POSIX 通过 process group 终止整棵派生进程树，避免只杀外层 shell 后后台进程继续运行。`run_command` 还必须声明 `purpose=inspect|verify`，使探查动作与完成证据在轨迹中可区分。
 
 这层策略是应用级护栏，不是操作系统沙箱。特别是 shell 命令仍可能主动访问 workspace 外的位置，因此 README 明确要求只在可信任务、允许修改的仓库中运行。
 

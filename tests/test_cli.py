@@ -15,12 +15,41 @@ from jarvis_agent.cli import (
     main,
 )
 from jarvis_agent.config import Config
+from jarvis_agent.errors import ModelError
 from jarvis_agent.session import SessionStore
 from jarvis_agent.spec import SpecStore
 from jarvis_agent.types import ModelResponse
 
 
 class CliTests(unittest.TestCase):
+    def test_interactive_model_failure_reports_error_and_accepts_next_command(self) -> None:
+        class FailingAgent:
+            def __init__(self, workspace: str) -> None:
+                self.config = Config.from_env(workspace=workspace)
+                self.messages = [{"role": "system", "content": "system"}]
+                self.tools = type("Tools", (), {"schemas": []})()
+
+            def run(self, _task: str):
+                raise ModelError("temporary gateway failure")
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with (
+                patch("builtins.input", side_effect=["do something", "/exit"]),
+                redirect_stdout(output),
+                redirect_stderr(output),
+            ):
+                exit_code = _interactive(
+                    FailingAgent(directory),  # type: ignore[arg-type]
+                    None,
+                    SessionStore(Path(directory) / "sessions"),
+                    None,
+                    auto_approve=False,
+                    streaming=False,
+                )
+        self.assertEqual(exit_code, 0)
+        self.assertIn("temporary gateway failure", output.getvalue())
+
     def test_json_and_no_stream_disable_model_streaming(self) -> None:
         class TrackingClient:
             def __init__(self) -> None:

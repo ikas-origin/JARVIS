@@ -2,6 +2,7 @@ import json
 import unittest
 
 from jarvis_agent.context import trim_messages
+from jarvis_agent.errors import AgentLimitError
 
 
 class ContextTests(unittest.TestCase):
@@ -14,7 +15,7 @@ class ContextTests(unittest.TestCase):
         ]
         result = trim_messages(messages, max_chars=20_000, per_tool_chars=100)
         self.assertIn("truncated", result[-1]["content"])
-        self.assertLess(len(result[-1]["content"]), 200)
+        self.assertLessEqual(len(result[-1]["content"]), 100)
 
     def test_drops_complete_old_tool_trajectory(self) -> None:
         messages = [
@@ -35,4 +36,12 @@ class ContextTests(unittest.TestCase):
         ]
         tool_ids = [message["tool_call_id"] for message in result if message["role"] == "tool"]
         self.assertEqual(assistant_ids, tool_ids)
+
+    def test_raises_when_protected_messages_alone_exceed_budget(self) -> None:
+        messages = [
+            {"role": "system", "content": "s" * 100},
+            {"role": "user", "content": "u" * 100},
+        ]
+        with self.assertRaises(AgentLimitError):
+            trim_messages(messages, max_chars=50)
 
