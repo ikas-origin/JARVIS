@@ -71,3 +71,24 @@ class ModelParserTests(unittest.TestCase):
             parse_chat_completion_stream(
                 [b'data: {"choices":[{"delta":{"content":"partial"}}]}\n'], lambda _text: None
             )
+
+    def test_stream_wraps_invalid_json_as_model_response_error(self) -> None:
+        with self.assertRaisesRegex(ModelResponseError, "invalid JSON"):
+            parse_chat_completion_stream(
+                [b"data: {not-json}\n", b"data: [DONE]\n"], lambda _text: None
+            )
+
+    def test_stream_rejects_invalid_tool_call_index_and_fragments(self) -> None:
+        invalid_index = [
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":"bad"}]}}]}\n',
+            b"data: [DONE]\n",
+        ]
+        with self.assertRaisesRegex(ModelResponseError, "index"):
+            parse_chat_completion_stream(invalid_index, lambda _text: None)
+
+        invalid_name = [
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":7}}]}}]}\n',
+            b"data: [DONE]\n",
+        ]
+        with self.assertRaisesRegex(ModelResponseError, "tool name fragment"):
+            parse_chat_completion_stream(invalid_name, lambda _text: None)

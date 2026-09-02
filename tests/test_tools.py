@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from jarvis_agent.policy import Policy
 from jarvis_agent.tool_protocol import ToolRegistry
@@ -129,7 +131,9 @@ class ToolTests(unittest.TestCase):
                 'python -c "import os; print(os.getcwd()); '
                 "print(os.getenv('JARVIS_API_KEY')); print(os.getenv('DEMO_TOKEN'))\""
             )
-            result = self.registry.execute("run_command", {"command": command})
+            result = self.registry.execute(
+                "run_command", {"command": command, "purpose": "inspect"}
+            )
         finally:
             if old is None:
                 os.environ.pop("JARVIS_API_KEY", None)
@@ -145,7 +149,9 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("also-must-not-leak", result.content)
 
     def test_dangerous_command_is_refused_even_when_auto_approved(self) -> None:
-        result = self.registry.execute("run_command", {"command": "git reset --hard"})
+        result = self.registry.execute(
+            "run_command", {"command": "git reset --hard", "purpose": "inspect"}
+        )
         self.assertFalse(result.ok)
         self.assertEqual(result.metadata["error_type"], "policy_error")
 
@@ -159,7 +165,9 @@ class ToolTests(unittest.TestCase):
         blocked_write = self.registry.execute(
             "write_file", {"path": "src/application.py", "content": "unsafe = True\n"}
         )
-        blocked_command = self.registry.execute("run_command", {"command": "python --version"})
+        blocked_command = self.registry.execute(
+            "run_command", {"command": "python --version", "purpose": "inspect"}
+        )
         self.assertTrue(allowed.ok, allowed.content)
         self.assertFalse(blocked_write.ok)
         self.assertEqual(blocked_write.metadata["error_type"], "policy_error")
@@ -192,3 +200,34 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(protected.metadata["error_type"], "policy_error")
         self.assertEqual(requirements.read_text(encoding="utf-8"), "approved\n")
         self.assertTrue(application.ok, application.content)
+
+    def test_schema_validation_checks_nested_array_items_and_enum_values(self) -> None:
+        nested = self.registry.execute("read_files", {"paths": [123]})
+        self.assertFalse(nested.ok)
+        self.assertIn("paths[0]", nested.content)
+        self.assertIn("string", nested.content)
+
+        invalid_purpose = self.registry.execute(
+            "run_command", {"command": "echo hello", "purpose": "pretend"}
+        )
+        self.assertFalse(invalid_purpose.ok)
+        self.assertIn("inspect", invalid_purpose.content)
+        self.assertIn("verify", invalid_purpose.content)
+
+    def test_command_timeout_handles_byte_partial_output(self) -> None:
+        timeout = subprocess.TimeoutExpired(
+            cmd="slow-command",
+            timeout=1,
+            output=b"partial stdout",
+            stderr=b"partial stderr",
+        )
+        with patch("jarvis_agent.tools.shell.subprocess.run", side_effect=timeout):
+            result = self.registry.execute(
+                "run_command",
+                {"command": "slow-command", "purpose": "inspect", "timeout": 1},
+            )
+        self.assertFalse(result.ok)
+        self.assertTrue(result.metadata["timed_out"])
+        self.assertEqual(result.metadata["purpose"], "inspect")
+        self.assertIn("partial stdout", result.content)
+        self.assertIn("partial stderr", result.content)

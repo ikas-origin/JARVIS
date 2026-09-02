@@ -27,6 +27,7 @@ from .spec import (
     revise_prompt,
     verify_prompt,
 )
+from .terminal_ui import TerminalUI
 from .tool_protocol import ToolRegistry
 from .tools import built_in_tools
 
@@ -65,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_group.add_argument("--resume", metavar="SESSION_ID", help="resume one exact session")
     parser.add_argument("--no-session", action="store_true", help="do not save conversation history")
     parser.add_argument("--no-stream", action="store_true", help="wait for each complete model response")
+    parser.add_argument("--no-color", action="store_true", help="disable ANSI colors in human output")
     parser.add_argument("--version", action="version", version=f"JARVIS {__version__}")
     return parser
 
@@ -119,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 _store.save(_session)
 
             checkpoint = save_messages
-        display = None if args.json_output else HumanDisplay()
+        display = None if args.json_output else HumanDisplay(color=False if args.no_color else None)
         agent = Agent(
             config,
             client,
@@ -134,7 +136,12 @@ def main(argv: list[str] | None = None) -> int:
             result["session_id"] = session.id if session else None
             if display:
                 display.finish_line()
-            _emit(result, args.json_output, suppress_answer=bool(display and display.consume_streamed()))
+            _emit(
+                result,
+                args.json_output,
+                suppress_answer=bool(display and display.consume_streamed()),
+                display=display,
+            )
             return 0 if result["ok"] else 2
         return _interactive(
             agent,
@@ -161,10 +168,17 @@ def _interactive(
     auto_approve: bool,
     streaming: bool,
 ) -> int:
-    _print_interactive_header(agent.config, session, auto_approve=auto_approve)
+    _print_interactive_header(
+        agent.config,
+        session,
+        auto_approve=auto_approve,
+        streaming=streaming,
+        tool_count=len(getattr(getattr(agent, "tools", None), "schemas", [])),
+        display=display,
+    )
     while True:
         try:
-            task = input("\nyou> ").strip()
+            task = input(display.prompt() if display else "\nyou> ").strip()
         except EOFError:
             return 0
         if not task:
@@ -194,18 +208,38 @@ def _interactive(
             display.finish_line()
         payload = result.to_dict()
         payload["session_id"] = session.id if session else None
-        _emit(payload, False, suppress_answer=bool(display and display.consume_streamed()))
+        _emit(
+            payload,
+            False,
+            suppress_answer=bool(display and display.consume_streamed()),
+            display=display,
+        )
 
 
-def _print_interactive_header(config: Config, session: Session | None, *, auto_approve: bool) -> None:
+def _print_interactive_header(
+    config: Config,
+    session: Session | None,
+    *,
+    auto_approve: bool,
+    streaming: bool,
+    tool_count: int,
+    display: "HumanDisplay | None",
+) -> None:
     branch = _git_branch(config.workspace)
-    print(f"JARVIS {__version__}  |  terminal Coding Agent")
-    print(f"workspace  {config.workspace}")
-    print(f"model      {config.model}")
-    print(f"git        {branch or '(not a Git repository)'}")
-    print(f"session    {session.id if session else '(not saved)'}")
-    print(f"approval   {'automatic for ordinary actions' if auto_approve else 'ask before writes/commands'}")
-    print("Enter a coding task, or type /help for commands.")
+    ui = display.ui if display else TerminalUI(color=False)
+    active_spec = SpecStore(config.workspace).active()
+    mode = f"SPEC:{active_spec.phase}" if active_spec else "REACT"
+    ui.banner(
+        version=__version__,
+        workspace=str(config.workspace),
+        model=config.model or "(missing)",
+        branch=branch,
+        session_id=session.id if session else None,
+        approval="automatic for ordinary actions" if auto_approve else "ask before writes/commands",
+        tools=tool_count,
+        streaming=streaming,
+        mode=mode,
+    )
 
 
 def _handle_interactive_command(
@@ -380,7 +414,12 @@ def _run_spec_agent(
         display.finish_line()
     payload = result.to_dict()
     payload["session_id"] = session.id if session else None
-    _emit(payload, False, suppress_answer=bool(display and display.consume_streamed()))
+    _emit(
+        payload,
+        False,
+        suppress_answer=bool(display and display.consume_streamed()),
+        display=display,
+    )
 
 
 def _implement_next_spec_task(
@@ -556,34 +595,49 @@ def _configure_stdio() -> None:
 
 
 class HumanDisplay:
-    def __init__(self) -> None:
+    def __init__(self, *, color: bool | None = None) -> None:
+        self.ui = TerminalUI(color=color)
         self.line_open = False
         self.streamed = False
+
+    def prompt(self) -> str:
+        return self.ui.prompt()
 
     def __call__(self, name: str, data: dict[str, Any]) -> None:
         if name == "assistant_delta":
             if not self.line_open:
-                print("JARVIS> ", end="", flush=True)
+                self.ui.assistant_header()
                 self.line_open = True
             print(data["text"], end="", flush=True)
             self.streamed = True
         elif name == "model_request":
             self.finish_line()
-            print(f"* turn {data['turn']}  thinking", file=sys.stderr)
+            self.ui.thinking(data["turn"])
+        elif name == "context_trimmed":
+            self.ui.context_trimmed(
+                data["before_messages"],
+                data["after_messages"],
+                data.get("before_chars"),
+                data.get("after_chars"),
+            )
         elif name == "verification_required":
             self.finish_line()
-            print("* verification required after file changes", file=sys.stderr)
+            self.ui.verification_required()
         elif name == "tool_start":
             self.finish_line()
-            print(f"  -> {data['name']} {json.dumps(data['arguments'], ensure_ascii=False)}", file=sys.stderr)
+            self.ui.tool_start(data["name"], data["arguments"])
         elif name == "tool_end":
-            marker = "ok" if data["ok"] else "error"
-            preview = str(data["content"]).replace("\n", " ")[:180]
-            print(f"  [{marker}] {data['name']}  {preview}", file=sys.stderr)
+            self.ui.tool_end(
+                data["name"],
+                data["ok"],
+                data["content"],
+                data.get("metadata", {}),
+            )
 
     def finish_line(self) -> None:
         if self.line_open:
             print()
+            self.ui.assistant_footer()
             self.line_open = False
 
     def consume_streamed(self) -> bool:
@@ -592,19 +646,30 @@ class HumanDisplay:
         return value
 
 
-def _emit(payload: dict[str, Any], json_output: bool, *, suppress_answer: bool = False) -> None:
+def _emit(
+    payload: dict[str, Any],
+    json_output: bool,
+    *,
+    suppress_answer: bool = False,
+    display: HumanDisplay | None = None,
+) -> None:
     if json_output:
         print(json.dumps(payload, ensure_ascii=False))
     elif "answer" in payload:
-        if not suppress_answer:
-            print(payload["answer"])
-        print(
-            f"\n[{payload['status']}: {payload['stop_reason']}; "
-            f"turns={payload['turns']}, tools={payload['tool_calls']}, "
-            f"tokens={payload['usage'].get('total_tokens', 'n/a')}, "
-            f"verification={payload['verification_status']}, "
-            f"elapsed={payload['elapsed_seconds']:.3f}s]"
-        )
+        if display:
+            if not suppress_answer:
+                display.ui.answer(payload["answer"])
+            display.ui.summary(payload)
+        else:
+            if not suppress_answer:
+                print(payload["answer"])
+            print(
+                f"\n[{payload['status']}: {payload['stop_reason']}; "
+                f"turns={payload['turns']}, tools={payload['tool_calls']}, "
+                f"tokens={payload['usage'].get('total_tokens', 'n/a')}, "
+                f"verification={payload['verification_status']}, "
+                f"elapsed={payload['elapsed_seconds']:.3f}s]"
+            )
     else:
         print("JARVIS configuration")
         for key in ("model", "base_url", "model_endpoint", "workspace"):

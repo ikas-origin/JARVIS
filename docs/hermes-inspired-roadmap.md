@@ -16,7 +16,7 @@ JARVIS 的目标仍然是小型、可解释的 Coding Agent，不复制 Hermes �
 ## 已落地：0.3～0.3.1
 
 1. 项目上下文：兼容 JARVIS、AGENTS、Claude Code 和 Cursor 的根目录约定文件，按优先级、有界注入。
-2. 验证闭环：源码写入后若没有成功命令，模型不能直接宣布完成；失败测试不会被当作验证成功。
+2. 验证闭环：源码写入后若没有成功的 `purpose=verify` 命令，模型不能直接宣布完成；失败测试和 `purpose=inspect` 的探查命令都不会被当作验证成功。
 3. 数据边界：远程模型调用要求显式 `--allow-remote`，`doctor` 标明 endpoint 是 local 或 remote，并解释可能发送的数据。
 4. 原有能力保留：workspace 策略、危险命令拒绝、会话 checkpoint、上下文轨迹成组裁剪、Spec 阶段权限均继续生效。
 5. 批量只读：`read_files` 在不扩大路径权限的前提下降低多文件检查的模型往返；TaskBoard 三轮对照保持 3/3，并将平均工具调用从 22.0 降到 17.7。

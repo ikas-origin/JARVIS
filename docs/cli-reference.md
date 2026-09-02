@@ -12,6 +12,7 @@
 | `--resume ID` | 恢复指定会话 |
 | `--no-session` | 不保存对话历史 |
 | `--no-stream` | 禁用 SSE 流式输出 |
+| `--no-color` | 禁用人类输出中的 ANSI 颜色；`NO_COLOR` 环境变量具有相同作用 |
 | `--json` | stdout 只输出一个稳定 JSON 对象 |
 | `--version` | 显示版本 |
 
@@ -31,7 +32,7 @@ jarvis --help
 | `read_files` | 一次读取 1～8 个已知的小型相关文件，降低模型往返次数 |
 | `write_file` | 创建或完整写入文件 |
 | `edit_file` | 唯一精确匹配后替换文本 |
-| `run_command` | 在 workspace 中运行带超时和输出限制的命令 |
+| `run_command` | 在 workspace 中运行带超时和输出限制的命令；必须声明 `purpose=inspect|verify` |
 
 Agent 循环：
 
@@ -111,7 +112,13 @@ JSON 模式禁用流式输出，stdout 只包含完整 JSON；进度和人类提
 
 ## 完成与验证门
 
-当 `write_file` 或 `edit_file` 成功修改普通项目文件后，JARVIS 不接受模型立即给出的“已完成”。Agent 必须在修改之后成功执行至少一次测试、构建、lint 或其它项目命令。失败命令不会解除验证门，`.jarvis/` 下的 Spec 状态和规划产物不触发该门，因此规划阶段仍然保持只写文档、不执行命令。
+当 `write_file` 或 `edit_file` 成功修改普通项目文件后，JARVIS 不接受模型立即给出的“已完成”。Agent 必须在修改之后成功执行至少一次 `purpose="verify"` 的测试、构建、lint、类型检查或其它可执行验证。`purpose="inspect"` 的目录查看等探查命令和任何失败命令都不会解除验证门。`.jarvis/` 下的 Spec 状态和规划产物不触发该门，因此规划阶段仍然保持只写文档、不执行命令。
+
+## 终端显示
+
+交互模式启动时显示钢铁侠风格字符画和状态栏，包括 workspace、模型、Git 分支、session、运行模式、工具数、流式状态与审批策略。对话使用 `YOU` 和 `JARVIS` 分区，工具与验证事件使用独立标签输出到 stderr，避免和最终回答混在一起。
+
+写入和编辑工具的 `content`、`old_text`、`new_text` 不会完整打印到终端事件流，只显示字符数；模型仍会收到完整结构化工具结果。终端不支持颜色、输出被重定向、设置 `NO_COLOR` 或使用 `--no-color` 时自动退化为纯文本。JSON 模式保持单一 JSON 对象，完全不包含字符画、ANSI 或状态栏。
 
 ## 开发与测试
 

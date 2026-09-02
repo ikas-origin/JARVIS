@@ -144,34 +144,57 @@ def parse_chat_completion_stream(
     usage: dict[str, int] = {}
     saw_done = False
     for raw_line in lines:
-        line = raw_line.decode("utf-8").strip()
+        try:
+            line = raw_line.decode("utf-8").strip()
+        except UnicodeError as exc:
+            raise ModelResponseError("Streaming response contains invalid UTF-8") from exc
         if not line or line.startswith(":") or not line.startswith("data:"):
             continue
         data = line[5:].strip()
         if data == "[DONE]":
             saw_done = True
             break
-        chunk = json.loads(data)
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError as exc:
+            raise ModelResponseError("Streaming response contains invalid JSON") from exc
+        if not isinstance(chunk, dict):
+            raise ModelResponseError("Streaming event must contain a JSON object")
         if isinstance(chunk.get("usage"), dict):
             usage = chunk["usage"]
         choices = chunk.get("choices") or []
+        if not isinstance(choices, list):
+            raise ModelResponseError("Streaming choices must be an array")
         if not choices:
             continue
         choice = choices[0]
+        if not isinstance(choice, dict):
+            raise ModelResponseError("Streaming choice must be a JSON object")
         finish_reason = choice.get("finish_reason") or finish_reason
         delta = choice.get("delta") or {}
-        text = delta.get("content") or ""
+        if not isinstance(delta, dict):
+            raise ModelResponseError("Streaming delta must be a JSON object")
+        text = _stream_fragment(delta.get("content"), "assistant content")
         if text:
             content_parts.append(text)
             on_text_delta(text)
         for raw_call in delta.get("tool_calls") or []:
-            index = int(raw_call.get("index", 0))
+            if not isinstance(raw_call, dict):
+                raise ModelResponseError("Streaming tool call must be a JSON object")
+            try:
+                index = int(raw_call.get("index", 0))
+            except (TypeError, ValueError) as exc:
+                raise ModelResponseError("Streaming tool call index must be an integer") from exc
+            if index < 0:
+                raise ModelResponseError("Streaming tool call index must not be negative")
             part = tool_parts.setdefault(index, {"id": "", "name": "", "arguments": ""})
             if raw_call.get("id"):
-                part["id"] = raw_call["id"]
+                part["id"] = _stream_fragment(raw_call["id"], "tool call id")
             function = raw_call.get("function") or {}
-            part["name"] += function.get("name") or ""
-            part["arguments"] += function.get("arguments") or ""
+            if not isinstance(function, dict):
+                raise ModelResponseError("Streaming tool function must be a JSON object")
+            part["name"] += _stream_fragment(function.get("name"), "tool name")
+            part["arguments"] += _stream_fragment(function.get("arguments"), "tool arguments")
     if not saw_done:
         raise ModelResponseError("Streaming response ended without a [DONE] event")
     payload = {
@@ -194,6 +217,14 @@ def parse_chat_completion_stream(
         "usage": usage,
     }
     return parse_chat_completion(payload)
+
+
+def _stream_fragment(value: object, label: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ModelResponseError(f"Streaming {label} fragment must be text or null")
+    return value
 
 
 def _safe_error_detail(exc: error.HTTPError, api_key: str) -> str:

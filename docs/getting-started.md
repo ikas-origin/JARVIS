@@ -206,6 +206,14 @@ JARVIS 不会自动修改注册表。界面路线见 [interface-strategy.md](int
 jarvis --allow-remote --no-stream --yes "你的任务"
 ```
 
+如果终端颜色显示异常，使用纯文本模式：
+
+```powershell
+jarvis --allow-remote --no-color
+```
+
+也可以设置标准的 `NO_COLOR` 环境变量。管道、文件重定向和 `--json` 会自动关闭界面颜色；JSON 输出不会包含启动字符画或状态栏。
+
 ### 提示必须添加 `--allow-remote`
 
 这是数据边界确认，不是认证错误。远程模型可能收到任务文本、JARVIS 选择读取的源码以及测试输出。确认仓库允许发送给所配置的供应商后添加该参数；如果 Base URL 指向 `localhost`、`127.0.0.1` 或 `::1`，则不需要。

@@ -10,11 +10,12 @@ JARVIS 是一个轻量级、终端优先的 Coding Agent，可以理解为简易
 
 - 多轮自主 Coding：读取、搜索、修改、运行、观察、继续修复
 - 七个本地工具：文件列表、代码搜索、单文件/批量读取、写入、精确编辑、命令执行
+- 钢铁侠风格启动页，以及清晰分离的 `YOU / JARVIS / TOOL / VERIFY` 终端输出
 - workspace 路径隔离、写入审批、危险命令拒绝
 - 流式输出、token/耗时统计、明确停止原因
 - 对话持久化以及 `--continue`、`--resume`
 - 自动加载 `JARVIS.md`、`AGENTS.md` 等项目约定
-- 修改源码后必须通过一次可执行验证才能结束
+- 修改源码后必须通过显式 `verify` 命令取得可执行证据才能结束
 - 稳定 JSON 输出，支持脚本和评测
 - Spec 模式：`requirements → design → tasks → implement → verify`
 
@@ -63,6 +64,8 @@ jarvis --allow-remote --yes "实现用户登录接口，补充测试并运行完
 
 远程模型会收到任务、Agent 主动读取的项目内容和命令输出，因此必须使用 `--allow-remote` 明确确认；本地模型不需要该参数。默认情况下，JARVIS 会在写文件或执行命令前询问。`--yes` 自动批准普通操作，但不会解除危险命令限制。
 
+交互终端会在支持 ANSI 的 TTY 中自动启用颜色，并隐藏写入工具的长文本参数，只显示长度和关键元数据。需要纯文本时使用 `--no-color`，也可设置通用的 `NO_COLOR` 环境变量；`--json` 输出始终不含界面装饰。
+
 ## Spec 模式
 
 复杂功能建议先写 Spec，再实现：
@@ -88,6 +91,7 @@ you> /spec verify
 - [CLI、工具、JSON 与安全参考](docs/cli-reference.md)
 - [架构说明](docs/architecture.md)
 - [Hermes 启发的演进路线与 TaskBoard 评测](docs/hermes-inspired-roadmap.md)
+- [1.1 终端体验、可靠性增强与 1.2 优先级](docs/v1.1-design-notes.md)
 - [2026-08-31 TaskBoard 三轮评测结果](docs/taskboard-evaluation-2026-08-31.md)
 - [终端界面选型](docs/interface-strategy.md)
 
@@ -98,7 +102,7 @@ $env:PYTHONDONTWRITEBYTECODE = "1"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-当前提交版本：`1.0.0`。
+当前开发版本：`1.1.0`。
 
 ## License
 

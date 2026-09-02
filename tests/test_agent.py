@@ -42,7 +42,13 @@ class AgentTests(unittest.TestCase):
             [
                 ModelResponse(tool_calls=[ToolCall("write-1", "write_file", {"path": "answer.txt", "content": "42"})]),
                 ModelResponse(
-                    tool_calls=[ToolCall("verify-1", "run_command", {"command": "echo verified"})]
+                    tool_calls=[
+                        ToolCall(
+                            "verify-1",
+                            "run_command",
+                            {"command": "echo verified", "purpose": "verify"},
+                        )
+                    ]
                 ),
                 ModelResponse(content="Created answer.txt and verified the write.", usage={"total_tokens": 7}),
             ]
@@ -119,7 +125,13 @@ class AgentTests(unittest.TestCase):
                 ),
                 ModelResponse(content="Done"),
                 ModelResponse(
-                    tool_calls=[ToolCall("verify", "run_command", {"command": "echo verified"})]
+                    tool_calls=[
+                        ToolCall(
+                            "verify",
+                            "run_command",
+                            {"command": "echo verified", "purpose": "verify"},
+                        )
+                    ]
                 ),
                 ModelResponse(content="Created and verified answer.txt"),
             ]
@@ -147,11 +159,23 @@ class AgentTests(unittest.TestCase):
                     ]
                 ),
                 ModelResponse(
-                    tool_calls=[ToolCall("failed", "run_command", {"command": "exit 1"})]
+                    tool_calls=[
+                        ToolCall(
+                            "failed",
+                            "run_command",
+                            {"command": "exit 1", "purpose": "verify"},
+                        )
+                    ]
                 ),
                 ModelResponse(content="Done despite the failure"),
                 ModelResponse(
-                    tool_calls=[ToolCall("passed", "run_command", {"command": "echo fixed"})]
+                    tool_calls=[
+                        ToolCall(
+                            "passed",
+                            "run_command",
+                            {"command": "echo fixed", "purpose": "verify"},
+                        )
+                    ]
                 ),
                 ModelResponse(content="Done and verified"),
             ]
@@ -161,6 +185,48 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result.turns, 5)
         self.assertEqual(result.tool_calls, 3)
         self.assertEqual(result.verification_status, "passed")
+
+    def test_successful_inspection_command_does_not_satisfy_verification_gate(self) -> None:
+        client = FakeClient(
+            [
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall("write", "write_file", {"path": "answer.txt", "content": "42"})
+                    ]
+                ),
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            "inspect",
+                            "run_command",
+                            {"command": "echo inspected", "purpose": "inspect"},
+                        )
+                    ]
+                ),
+                ModelResponse(content="Done after inspection only"),
+                ModelResponse(
+                    tool_calls=[
+                        ToolCall(
+                            "verify",
+                            "run_command",
+                            {"command": "echo verified", "purpose": "verify"},
+                        )
+                    ]
+                ),
+                ModelResponse(content="Done after verification"),
+            ]
+        )
+        events = []
+        result = Agent(
+            self.config,
+            client,
+            self.registry,
+            on_event=lambda name, data: events.append((name, data)),
+        ).run("Create and verify answer.txt")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.turns, 5)
+        self.assertEqual(result.verification_status, "passed")
+        self.assertIn("verification_required", [name for name, _data in events])
 
     def test_project_context_is_injected_into_system_prompt(self) -> None:
         (self.config.workspace / "AGENTS.md").write_text("Always run unittest.", encoding="utf-8")

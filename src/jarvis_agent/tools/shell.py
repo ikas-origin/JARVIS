@@ -20,9 +20,16 @@ def _truncate(text: str, limit: int) -> tuple[str, bool]:
     return text[:head] + "\n... output truncated ...\n" + text[-tail:], True
 
 
+def _as_text(value: str | bytes | None) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value or ""
+
+
 def make_run_command_tool(timeout: float, output_limit: int) -> Tool:
     def run_command(arguments: dict[str, Any], policy: Policy) -> ToolResult:
         command = arguments["command"]
+        purpose = arguments["purpose"]
         requested_timeout = float(arguments.get("timeout", timeout))
         requested_timeout = min(max(requested_timeout, 1.0), 300.0)
         policy.check_command(command)
@@ -41,12 +48,12 @@ def make_run_command_tool(timeout: float, output_limit: int) -> Tool:
                 check=False,
             )
         except subprocess.TimeoutExpired as error:
-            partial = (error.stdout or "") + (error.stderr or "")
+            partial = _as_text(error.stdout) + _as_text(error.stderr)
             output, truncated = _truncate(partial, output_limit)
             return ToolResult(
                 False,
                 output or f"Command timed out after {requested_timeout:g} seconds",
-                {"timed_out": True, "truncated": truncated},
+                {"timed_out": True, "truncated": truncated, "purpose": purpose},
             )
         combined = completed.stdout
         if completed.stderr:
@@ -55,19 +62,32 @@ def make_run_command_tool(timeout: float, output_limit: int) -> Tool:
         return ToolResult(
             completed.returncode == 0,
             output,
-            {"exit_code": completed.returncode, "truncated": truncated},
+            {"exit_code": completed.returncode, "truncated": truncated, "purpose": purpose},
         )
 
     return Tool(
         "run_command",
-        "Run a local shell command in the workspace. Use it for tests, builds, and project inspection.",
+        (
+            "Run a local shell command in the workspace. Set purpose='inspect' for discovery and "
+            "purpose='verify' only for a test, build, lint, type-check, or other executable validation."
+        ),
         {
             "type": "object",
             "properties": {
-                "command": {"type": "string"},
-                "timeout": {"type": "number", "description": "Seconds, clamped to 1..300"},
+                "command": {"type": "string", "minLength": 1},
+                "purpose": {
+                    "type": "string",
+                    "enum": ["inspect", "verify"],
+                    "description": "inspect gathers information; verify supplies post-change evidence",
+                },
+                "timeout": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 300,
+                    "description": "Seconds",
+                },
             },
-            "required": ["command"],
+            "required": ["command", "purpose"],
             "additionalProperties": False,
         },
         run_command,

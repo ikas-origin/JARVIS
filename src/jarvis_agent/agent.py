@@ -117,6 +117,16 @@ class Agent:
                 max_chars=self.config.max_context_chars,
                 per_tool_chars=min(8_000, self.config.max_tool_output_chars),
             )
+            if request_messages != self.messages:
+                self.on_event(
+                    "context_trimmed",
+                    {
+                        "before_messages": len(self.messages),
+                        "after_messages": len(request_messages),
+                        "before_chars": len(json.dumps(self.messages, ensure_ascii=False)),
+                        "after_chars": len(json.dumps(request_messages, ensure_ascii=False)),
+                    },
+                )
             response = self.client.complete(
                 request_messages,
                 self.tools.schemas,
@@ -141,7 +151,8 @@ class Agent:
                             "content": (
                                 "JARVIS verification gate: files were changed after the last successful "
                                 "command. Run the most relevant tests, build, lint, or other executable "
-                                "check now. If it fails, fix the problem and rerun it before answering."
+                                "check now with run_command purpose='verify'. If it fails, fix the problem "
+                                "and rerun it before answering. Inspection commands do not satisfy this gate."
                             ),
                         }
                     )
@@ -170,7 +181,11 @@ class Agent:
                     if not path.startswith(".jarvis/"):
                         needs_verification = True
                         verification_status = "required"
-                elif result.ok and call.name == "run_command":
+                elif (
+                    result.ok
+                    and call.name == "run_command"
+                    and call.arguments.get("purpose") == "verify"
+                ):
                     if needs_verification:
                         verification_status = "passed"
                     needs_verification = False
@@ -181,7 +196,15 @@ class Agent:
                     {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": payload}
                 )
                 self._checkpoint()
-                self.on_event("tool_end", {"name": call.name, "ok": result.ok, "content": result.content})
+                self.on_event(
+                    "tool_end",
+                    {
+                        "name": call.name,
+                        "ok": result.ok,
+                        "content": result.content,
+                        "metadata": result.metadata,
+                    },
+                )
                 if result.ok:
                     repeated_error = None
                 else:
