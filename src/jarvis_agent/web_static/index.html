@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JARVIS Web Console</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="identity">
+          <div class="arc" aria-hidden="true">
+            <span class="arc-outer"></span>
+            <span class="arc-inner"></span>
+            <span class="arc-core">▼</span>
+          </div>
+          <div>
+            <p class="eyebrow">LOCAL-FIRST CODING AGENT</p>
+            <h1>JARVIS</h1>
+            <p class="subtitle">同一个 Agent 核心，现在有了本机 Web 控制台。</p>
+          </div>
+        </div>
+        <div id="health" class="health"><span></span><strong>CONNECTING</strong></div>
+      </header>
+
+      <section class="runtime-grid" aria-label="JARVIS runtime">
+        <article><span>WORKSPACE</span><strong id="workspace">—</strong></article>
+        <article><span>MODEL</span><strong id="model">—</strong></article>
+        <article><span>APPROVAL</span><strong id="approval">—</strong></article>
+        <article><span>SESSION</span><strong id="session">—</strong></article>
+      </section>
+
+      <section class="console">
+        <div class="console-head">
+          <div>
+            <p class="eyebrow">AGENT TIMELINE</p>
+            <h2>当前对话</h2>
+          </div>
+          <div id="task-state" class="state idle">READY</div>
+        </div>
+
+        <div id="timeline" class="timeline" aria-live="polite">
+          <div id="welcome" class="welcome">
+            <p>输入一个真实编程任务。JARVIS 会在上方 workspace 中读取代码、修改文件并执行验证。</p>
+            <small>页面关闭不会终止正在运行的任务；本地服务随终端 Ctrl+C 退出。</small>
+          </div>
+        </div>
+
+        <form id="task-form" class="composer">
+          <label for="task">Coding task</label>
+          <textarea
+            id="task"
+            maxlength="20000"
+            rows="4"
+            placeholder="例如：检查失败测试，定位根因，做最小修复并运行完整验证。"
+            required
+          ></textarea>
+          <div class="composer-foot">
+            <span id="message" role="status">Ctrl + Enter 发送</span>
+            <button id="submit" type="submit">Run with JARVIS <span>↗</span></button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <template id="message-template">
+      <article class="message-card">
+        <header><span class="role"></span><time></time></header>
+        <pre class="body"></pre>
+      </article>
+    </template>
+
+    <template id="trace-template">
+      <article class="trace-row">
+        <span class="trace-icon"></span>
+        <div><strong></strong><pre></pre></div>
+      </article>
+    </template>
+
+    <template id="approval-template">
+      <article class="approval-card">
+        <p class="eyebrow">APPROVAL REQUIRED</p>
+        <strong></strong>
+        <div>
+          <button data-decision="false" type="button">拒绝</button>
+          <button data-decision="true" type="button">允许一次</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

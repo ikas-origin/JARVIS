@@ -18,6 +18,7 @@ JARVIS 是一个轻量级、终端优先的 Coding Agent，可以理解为简易
 - 修改源码后必须通过显式 `verify` 命令取得可执行证据才能结束
 - 稳定 JSON 输出，支持脚本和评测
 - Spec 模式：`requirements → design → tasks → implement → verify`
+- 实验性 localhost Web 控制台：复用同一个 Agent 核心、浏览器审批和单 workspace 串行执行
 
 ## 快速开始
 
@@ -68,6 +69,14 @@ jarvis --allow-remote --yes "实现用户登录接口，补充测试并运行完
 
 Linux/macOS 建议先激活虚拟环境再启动。即使直接运行 `.venv/bin/jarvis`，JARVIS 也会把自身解释器目录加入工具子进程的 `PATH`，使 Agent 调用 `python` 时仍优先使用同一虚拟环境。
 
+实验性本地 Web 控制台：
+
+```powershell
+jarvis-web --workspace D:\path\to\your-project --allow-remote
+```
+
+命令会打开一个仅监听 `127.0.0.1` 的页面。网页只是现有 Agent loop 的本地界面，不会把代码执行迁移到云端；完整边界见 [Web 控制台](docs/web-console.md)。
+
 ## Spec 模式
 
 复杂功能建议先写 Spec，再实现：
@@ -96,6 +105,7 @@ you> /spec verify
 - [1.1 终端体验、可靠性增强与 1.2 优先级](docs/v1.1-design-notes.md)
 - [外部审查问题复现与修复记录](docs/external-review-follow-up-2026-09-02.md)
 - [工程韧性审查与极端场景测试](docs/engineering-resilience-review-2026-09-02.md)
+- [实验性本地 Web 控制台](docs/web-console.md)
 - [2026-08-31 TaskBoard 三轮评测结果](docs/taskboard-evaluation-2026-08-31.md)
 - [终端界面选型](docs/interface-strategy.md)
 

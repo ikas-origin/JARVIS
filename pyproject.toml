@@ -15,6 +15,10 @@ dependencies = []
 [project.scripts]
 jarvis = "jarvis_agent.cli:main"
 jarvis-gui = "jarvis_agent.gui:main"
+jarvis-web = "jarvis_agent.web:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+jarvis_agent = ["web_static/*.html", "web_static/*.css", "web_static/*.js"]
