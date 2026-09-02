@@ -18,15 +18,19 @@ _CYAN = "\033[96m"
 _GREEN = "\033[92m"
 
 
-IRON_HELMET = (
-    "              .-===========-.",
-    "             /  .---------.  \\",
-    "            /  /           \\  \\",
-    "           |  |   >     <   |  |",
-    "           |  |      ^      |  |",
-    "            \\  \\   '---'   /  /",
-    "             '._'-------'_.'",
-    "                \\_____/",
+ARC_TRIANGLE = (
+    "             ━━━━━━━━━━━━━━━━━━━━━━━",
+    "              ╲                   ╱",
+    "               ╲   ━━━━━━━━━━━   ╱",
+    "                ╲   ╲       ╱   ╱",
+    "                 ╲   ╲     ╱   ╱",
+    "                  ╲   ╲   ╱   ╱",
+    "                   ╲   ╲ ╱   ╱",
+    "                    ╲   ▼   ╱",
+    "                     ╲     ╱",
+    "                      ╲   ╱",
+    "                       ╲ ╱",
+    "                        ▼",
 )
 
 
@@ -71,8 +75,8 @@ class TerminalUI:
         mode: str,
     ) -> None:
         print(file=self.stream)
-        for line in IRON_HELMET:
-            print(self.paint(line, _RED, _BOLD), file=self.stream)
+        for line in ARC_TRIANGLE:
+            print(self.paint(line, _CYAN, _BOLD), file=self.stream)
         print(file=self.stream)
         print(
             "  " + self.paint("J A R V I S", _GOLD, _BOLD) + self.paint(f"   v{version}", _DIM),
