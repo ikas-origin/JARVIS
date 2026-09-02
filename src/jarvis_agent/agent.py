@@ -127,14 +127,15 @@ class Agent:
                         "after_chars": len(json.dumps(request_messages, ensure_ascii=False)),
                     },
                 )
+            on_text_delta = (
+                (lambda delta: self.on_event("assistant_delta", {"text": delta}))
+                if self.stream
+                else None
+            )
             response = self.client.complete(
                 request_messages,
                 self.tools.schemas,
-                (
-                    lambda delta: self.on_event("assistant_delta", {"text": delta})
-                    if self.stream
-                    else None
-                ),
+                on_text_delta,
             )
             for name, value in response.usage.items():
                 if isinstance(value, int) and not isinstance(value, bool):

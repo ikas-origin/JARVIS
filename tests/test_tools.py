@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -147,6 +148,18 @@ class ToolTests(unittest.TestCase):
         self.assertIn(str(self.root), result.content)
         self.assertNotIn("must-not-leak", result.content)
         self.assertNotIn("also-must-not-leak", result.content)
+
+    def test_command_finds_agent_python_without_activated_environment(self) -> None:
+        with patch.dict(os.environ, {"PATH": ""}, clear=False):
+            result = self.registry.execute(
+                "run_command",
+                {
+                    "command": 'python -c "import sys; print(sys.executable)"',
+                    "purpose": "inspect",
+                },
+            )
+        self.assertTrue(result.ok, result.content)
+        self.assertIn(os.path.basename(sys.executable), result.content)
 
     def test_dangerous_command_is_refused_even_when_auto_approved(self) -> None:
         result = self.registry.execute(

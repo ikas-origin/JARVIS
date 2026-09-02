@@ -1,10 +1,45 @@
+import json
 import unittest
+from unittest.mock import patch
 
 from jarvis_agent.errors import ModelResponseError
-from jarvis_agent.model_client import parse_chat_completion, parse_chat_completion_stream
+from jarvis_agent.model_client import (
+    OpenAICompatibleClient,
+    parse_chat_completion,
+    parse_chat_completion_stream,
+)
 
 
 class ModelParserTests(unittest.TestCase):
+    def test_complete_sends_non_streaming_request_without_callback(self) -> None:
+        requests = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, _type, _value, _traceback):
+                return False
+
+            def read(self):
+                return b'{"choices":[{"message":{"content":"Done"}}]}'
+
+        def open_request(http_request, *, timeout):
+            requests.append((json.loads(http_request.data), timeout))
+            return Response()
+
+        client = OpenAICompatibleClient(
+            api_key="key",
+            model="model",
+            base_url="https://example.test/v1",
+        )
+        with patch("jarvis_agent.model_client.request.urlopen", side_effect=open_request):
+            response = client.complete([], [], None)
+
+        self.assertEqual(response.content, "Done")
+        self.assertFalse(requests[0][0]["stream"])
+        self.assertNotIn("stream_options", requests[0][0])
+
     def test_parses_text_and_tool_call(self) -> None:
         response = parse_chat_completion(
             {

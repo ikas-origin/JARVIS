@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from typing import Any
 
 from ..policy import Policy
@@ -102,4 +103,15 @@ _SECRET_ENV_NAME = re.compile(
 
 def _sanitized_environment() -> dict[str, str]:
     """Keep normal build variables while withholding common credential names."""
-    return {name: value for name, value in os.environ.items() if not _SECRET_ENV_NAME.search(name)}
+    environment = {
+        name: value for name, value in os.environ.items() if not _SECRET_ENV_NAME.search(name)
+    }
+    interpreter_dir = os.path.dirname(os.path.abspath(sys.executable))
+    path = environment.get("PATH", "")
+    path_entries = path.split(os.pathsep) if path else []
+    normalized_entries = {os.path.normcase(os.path.abspath(entry)) for entry in path_entries if entry}
+    if os.path.normcase(interpreter_dir) not in normalized_entries:
+        environment["PATH"] = (
+            interpreter_dir + (os.pathsep + path if path else "")
+        )
+    return environment

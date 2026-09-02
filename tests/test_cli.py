@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from jarvis_agent.cli import (
@@ -17,9 +17,41 @@ from jarvis_agent.cli import (
 from jarvis_agent.config import Config
 from jarvis_agent.session import SessionStore
 from jarvis_agent.spec import SpecStore
+from jarvis_agent.types import ModelResponse
 
 
 class CliTests(unittest.TestCase):
+    def test_json_and_no_stream_disable_model_streaming(self) -> None:
+        class TrackingClient:
+            def __init__(self) -> None:
+                self.callbacks = []
+
+            def complete(self, _messages, _tools, on_text_delta=None):
+                self.callbacks.append(on_text_delta)
+                return ModelResponse(content="Done")
+
+        for flag in ("--json", "--no-stream"):
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as directory:
+                client = TrackingClient()
+                output = io.StringIO()
+                environment = {
+                    "JARVIS_API_KEY": "key",
+                    "JARVIS_MODEL": "model",
+                    "JARVIS_BASE_URL": "http://127.0.0.1:8000/v1",
+                    "JARVIS_CONFIG": os.path.join(directory, "config.json"),
+                }
+                with (
+                    patch.dict(os.environ, environment, clear=True),
+                    patch("jarvis_agent.cli.OpenAICompatibleClient", return_value=client),
+                    redirect_stdout(output),
+                    redirect_stderr(output),
+                ):
+                    exit_code = main(
+                        ["--workspace", directory, flag, "--no-session", "report status"]
+                    )
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(client.callbacks, [None])
+
     def test_remote_model_requires_explicit_data_consent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config = Config("key", "model", "https://api.example.test/v1", Path(directory))

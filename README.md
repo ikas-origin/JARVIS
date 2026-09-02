@@ -66,6 +66,8 @@ jarvis --allow-remote --yes "实现用户登录接口，补充测试并运行完
 
 交互终端会在支持 ANSI 的 TTY 中自动启用颜色，并隐藏写入工具的长文本参数，只显示长度和关键元数据。需要纯文本时使用 `--no-color`，也可设置通用的 `NO_COLOR` 环境变量；`--json` 输出始终不含界面装饰。
 
+Linux/macOS 建议先激活虚拟环境再启动。即使直接运行 `.venv/bin/jarvis`，JARVIS 也会把自身解释器目录加入工具子进程的 `PATH`，使 Agent 调用 `python` 时仍优先使用同一虚拟环境。
+
 ## Spec 模式
 
 复杂功能建议先写 Spec，再实现：
@@ -92,6 +94,7 @@ you> /spec verify
 - [架构说明](docs/architecture.md)
 - [Hermes 启发的演进路线与 TaskBoard 评测](docs/hermes-inspired-roadmap.md)
 - [1.1 终端体验、可靠性增强与 1.2 优先级](docs/v1.1-design-notes.md)
+- [外部审查问题复现与修复记录](docs/external-review-follow-up-2026-09-02.md)
 - [2026-08-31 TaskBoard 三轮评测结果](docs/taskboard-evaluation-2026-08-31.md)
 - [终端界面选型](docs/interface-strategy.md)
 

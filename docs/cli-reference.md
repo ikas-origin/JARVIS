@@ -11,7 +11,7 @@
 | `--continue` | 继续当前 workspace 最近会话 |
 | `--resume ID` | 恢复指定会话 |
 | `--no-session` | 不保存对话历史 |
-| `--no-stream` | 禁用 SSE 流式输出 |
+| `--no-stream` | 禁用 SSE；模型请求发送 `stream: false` 并等待普通 JSON 响应 |
 | `--no-color` | 禁用人类输出中的 ANSI 颜色；`NO_COLOR` 环境变量具有相同作用 |
 | `--json` | stdout 只输出一个稳定 JSON 对象 |
 | `--version` | 显示版本 |
@@ -97,6 +97,8 @@ jarvis --allow-remote --json --no-session --yes "读取项目并报告测试命�
 ```
 
 JSON 模式禁用流式输出，stdout 只包含完整 JSON；进度和人类提示不会混入结果。
+
+`--json` 与 `--no-stream` 都会在模型协议层真正关闭 SSE，而不只是隐藏终端增量输出。请求体使用 `stream: false` 且不包含 `stream_options`，因此可连接只支持普通 Chat Completions JSON 响应的兼容端点。
 
 ## 安全和隐私边界
 

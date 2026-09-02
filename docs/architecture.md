@@ -47,7 +47,7 @@ JARVIS 是一个简易版 Claude Code 风格的 Coding Agent，而不是普通�
 
 会话默认保存到 `~/.jarvis/sessions`。每次追加 user、assistant 或 tool 消息后都会原子写入 checkpoint，因此正常结束、工具失败或后续轮次异常时已有轨迹仍可恢复。`--continue` 只选择当前 workspace 的最近会话，`--resume` 也会校验会话所属 workspace，避免把其它项目历史注入当前任务。
 
-人类输出模式使用 OpenAI 兼容 SSE 流，逐段显示 assistant 文本，并按 tool-call index 拼接可能被拆分的函数名与 JSON 参数。收到 `[DONE]` 后才将完整响应写入历史。畸形 UTF-8、JSON、choice/delta、tool-call index 和非文本碎片都会转换为 `ModelResponseError`，不会让半截调用进入工具层。`--json` 保持非流式，确保 stdout 始终只有一个完整 JSON 对象；`--no-stream` 可为兼容性较差的网关回退到普通响应。
+人类输出模式使用 OpenAI 兼容 SSE 流，逐段显示 assistant 文本，并按 tool-call index 拼接可能被拆分的函数名与 JSON 参数。收到 `[DONE]` 后才将完整响应写入历史。畸形 UTF-8、JSON、choice/delta、tool-call index 和非文本碎片都会转换为 `ModelResponseError`，不会让半截调用进入工具层。Agent 只在流式模式下向客户端传入 delta callback；`--json` 和 `--no-stream` 传入 `None`，客户端据此发送 `stream: false` 且不附加 `stream_options`，兼容普通 JSON 模型端点。
 
 终端是 JARVIS 的主交互层。无位置参数的 `jarvis` 启动项目内 REPL，以启动页显示 workspace、模型、Git 分支、session、运行模式、工具数和审批策略，并使用 `YOU / JARVIS / TOOL / VERIFY` 分区展示轨迹。工具事件只展示有界参数和元数据，避免文件正文污染对话。颜色仅在支持的 TTY 中启用，`--no-color`、`NO_COLOR` 和重定向输出会退化为纯文本。带任务参数时走同一个 agent loop 做一次性执行；`--json` 提供稳定的自动化接口。这些入口只改变输入输出，不复制核心逻辑。
 
@@ -106,7 +106,7 @@ requirements --approve--> design --approve--> tasks --approve--> implementing
 
 结果同时包含按工具名汇总的 `tool_usage` 和 `verification_status`（`not_required`、`required`、`passed`），用于区分“模型说完成”和“修改后确有成功命令”的评测。CLI 启动时将 stdout/stderr 固定为 UTF-8，使 Windows 控制台、管道和 JSON 文件中的中文保持一致。
 
-所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。工具注册表递归校验 object、array items、enum、长度和数值范围，不依赖模型遵守 schema。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。`run_command` 还必须声明 `purpose=inspect|verify`，使探查动作与完成证据在轨迹中可区分。
+所有路径先相对 workspace 解析，再检查最终绝对路径仍位于 workspace 内。文件工具拒绝访问 `.git`、私钥和常见凭据文件。`edit_file` 只接受唯一的精确匹配，避免修改错误位置。工具注册表递归校验 object、array items、enum、长度和数值范围，不依赖模型遵守 schema。命令在 workspace 中运行，带超时和输出上限，并从子进程环境移除名称疑似 key、token、secret 或 password 的变量。子进程 `PATH` 会优先加入当前 JARVIS Python 解释器所在目录，使未激活虚拟环境时的 `python` 仍与 Agent 自身一致。`run_command` 还必须声明 `purpose=inspect|verify`，使探查动作与完成证据在轨迹中可区分。
 
 这层策略是应用级护栏，不是操作系统沙箱。特别是 shell 命令仍可能主动访问 workspace 外的位置，因此 README 明确要求只在可信任务、允许修改的仓库中运行。
 
